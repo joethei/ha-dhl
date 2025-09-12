@@ -1,0 +1,67 @@
+name: Version Bump
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_type:
+        description: 'Version Bump Type'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+        - patch
+        - minor
+        - major
+
+jobs:
+  bump_version:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        
+    - name: Install semver
+      run: npm install -g semver
+      
+    - name: Get current version
+      id: current_version
+      run: |
+        CURRENT=$(grep '"version"' manifest.json | cut -d'"' -f4)
+        echo "CURRENT_VERSION=$CURRENT" >> $GITHUB_OUTPUT
+        echo "Current version: $CURRENT"
+        
+    - name: Calculate new version
+      id: new_version
+      run: |
+        NEW_VERSION=$(semver -i ${{ github.event.inputs.version_type }} ${{ steps.current_version.outputs.CURRENT_VERSION }})
+        echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_OUTPUT
+        echo "New version: $NEW_VERSION"
+        
+    - name: Update manifest.json
+      run: |
+        sed -i "s/\"version\": \".*\"/\"version\": \"${{ steps.new_version.outputs.NEW_VERSION }}\"/" manifest.json
+        echo "Updated manifest.json:"
+        cat manifest.json | grep version
+        
+    - name: Commit version bump
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add manifest.json
+        git commit -m "Bump version to ${{ steps.new_version.outputs.NEW_VERSION }}"
+        git push
+        
+    - name: Create and push tag
+      run: |
+        git tag v${{ steps.new_version.outputs.NEW_VERSION }}
+        git push origin v${{ steps.new_version.outputs.NEW_VERSION }}
