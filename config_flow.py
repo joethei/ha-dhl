@@ -1,4 +1,5 @@
 """Config flow for DHL Tracking integration."""
+
 from __future__ import annotations
 
 import logging
@@ -27,14 +28,12 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
 async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str, Any]:
     """Validate the user input allows us to connect."""
     tracker = DHLTracker(data[CONF_API_KEY])
-    
+
     # Test the API key with a dummy request (this will fail but validate the key format)
     try:
         # We just test if we can initialize and make a request
         # A 404 or similar error is expected here, but auth errors would be different
-        await hass.async_add_executor_job(
-            tracker.track_shipment, "test123456789"
-        )
+        await hass.async_add_executor_job(tracker.track_shipment, "test123456789")
     except Exception as exc:
         # Check if it's an auth error vs other errors
         if "auth" in str(exc).lower() or "unauthorized" in str(exc).lower():
@@ -49,11 +48,9 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
         if tracking_input:
             # Split by comma and clean up each number
             tracking_numbers = [
-                num.strip() 
-                for num in tracking_input.split(",") 
-                if num.strip()
+                num.strip() for num in tracking_input.split(",") if num.strip()
             ]
-    
+
     _LOGGER.debug("Parsed tracking numbers: %s", tracking_numbers)
 
     return {

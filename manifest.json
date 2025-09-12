@@ -1,13 +1,18 @@
 {
   "domain": "dhl_tracking",
   "name": "DHL Tracking",
-  "codeowners": ["@pascatl"],
+  "codeowners": [
+    "@pascatl"
+  ],
   "config_flow": true,
   "dependencies": [],
   "documentation": "https://github.com/pascatl/ha-dhl",
   "homeassistant": "2023.1.0",
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/pascatl/ha-dhl/issues",
-  "requirements": ["requests", "python-dotenv"],
+  "requirements": [
+    "requests",
+    "python-dotenv"
+  ],
   "version": "0.0.1"
 }

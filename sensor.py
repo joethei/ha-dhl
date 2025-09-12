@@ -1,4 +1,5 @@
 """DHL Tracking sensor platform."""
+
 from __future__ import annotations
 
 import logging
@@ -36,16 +37,14 @@ async def async_setup_entry(
     """Set up DHL Tracking sensors."""
     api_key = config_entry.data[CONF_API_KEY]
     tracking_numbers = config_entry.data.get(CONF_TRACKING_NUMBERS, [])
-    
+
     # Ensure tracking_numbers is a list
     if isinstance(tracking_numbers, str):
         tracking_numbers = [tracking_numbers]
     elif not isinstance(tracking_numbers, list):
         tracking_numbers = []
-    
-    _LOGGER.debug(
-        "Setting up sensors for tracking numbers: %s", tracking_numbers
-    )
+
+    _LOGGER.debug("Setting up sensors for tracking numbers: %s", tracking_numbers)
 
     if not tracking_numbers:
         _LOGGER.warning("No tracking numbers configured")
@@ -66,12 +65,11 @@ async def async_setup_entry(
 
         # Create sensor entity for each API attribute
         for sensor_type, sensor_config in SENSOR_TYPES.items():
-            entities.append(DHLTrackingSensor(
-                coordinator,
-                tracking_number,
-                sensor_type,
-                sensor_config
-            ))
+            entities.append(
+                DHLTrackingSensor(
+                    coordinator, tracking_number, sensor_type, sensor_config
+                )
+            )
 
     async_add_entities(entities)
 
@@ -104,22 +102,19 @@ class DHLTrackingCoordinator(DataUpdateCoordinator):
                 # to avoid excessive error logging
                 _LOGGER.debug(
                     "No data returned for %s, keeping previous data",
-                    self.tracking_number
+                    self.tracking_number,
                 )
                 return self.data  # Return previous data if available
             return data
         except Exception as exc:
             if "rate limit" in str(exc).lower():
                 _LOGGER.info(
-                    "Rate limit reached for %s, will retry later",
-                    self.tracking_number
+                    "Rate limit reached for %s, will retry later", self.tracking_number
                 )
                 return self.data  # Return previous data on rate limit
             else:
                 _LOGGER.error(
-                    "Error fetching data for %s: %s",
-                    self.tracking_number,
-                    exc
+                    "Error fetching data for %s: %s", self.tracking_number, exc
                 )
                 raise UpdateFailed(f"Error fetching data: {exc}") from exc
 
@@ -132,18 +127,18 @@ class DHLTrackingSensor(CoordinatorEntity, SensorEntity):
         coordinator: DHLTrackingCoordinator,
         tracking_number: str,
         sensor_type: str,
-        sensor_config: dict[str, Any]
+        sensor_config: dict[str, Any],
     ) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator)
         self.tracking_number = tracking_number
         self.sensor_type = sensor_type
         self.sensor_config = sensor_config
-        
+
         self._attr_name = f"DHL {tracking_number} {sensor_config['name']}"
         self._attr_unique_id = f"dhl_tracking_{tracking_number}_{sensor_type}"
         self._attr_icon = sensor_config["icon"]
-        
+
         if sensor_config.get("device_class"):
             self._attr_device_class = sensor_config["device_class"]
         if sensor_config.get("unit"):
@@ -163,11 +158,11 @@ class DHLTrackingSensor(CoordinatorEntity, SensorEntity):
         """Format location data for display."""
         if not location_data:
             return None
-        
+
         address = location_data.get("address", {})
         city = address.get("addressLocality", "")
         country = address.get("countryCode", "")
-        
+
         if city and country:
             return f"{city}, {country}"
         elif city:
@@ -182,42 +177,38 @@ class DHLTrackingSensor(CoordinatorEntity, SensorEntity):
         """Return the state of the sensor."""
         if self.coordinator.data is None:
             return None
-            
+
         data = self.coordinator.data
         api_path = self.sensor_config.get("api_path", [])
-        
+
         if not api_path:
             return None
-        
+
         # Special handling for specific sensor types
         if self.sensor_type == "status_location":
             # Get location from status
-            status_location = self._get_nested_value(
-                data, ["status", "location"]
-            )
+            status_location = self._get_nested_value(data, ["status", "location"])
             return self._format_location(status_location)
-        
+
         elif self.sensor_type == "return_flag":
             # Handle boolean return flag
             value = self._get_nested_value(data, api_path)
             return "Ja" if value else "Nein"
-        
+
         else:
             # Standard path extraction
             value = self._get_nested_value(data, api_path)
-            
+
             # Handle weight unit display
             if self.sensor_type == "weight_unit" and value:
                 return value
             elif self.sensor_type == "weight_value" and value:
                 # For weight value, also get the unit for display
-                unit = self._get_nested_value(
-                    data, ["details", "weight", "unitText"]
-                )
+                unit = self._get_nested_value(data, ["details", "weight", "unitText"])
                 if unit:
                     self._attr_native_unit_of_measurement = unit
                 return value
-                
+
             return value
 
     @property
