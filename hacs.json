@@ -3,6 +3,5 @@
     "content_in_root": true,
     "zip_release": false,
     "hide_default_branch": false,
-    "homeassistant": "2023.1.0",
-    "version": "v0.0.1"
+    "homeassistant": "2023.1.0"
 }
