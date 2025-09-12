@@ -1,0 +1,8 @@
+{
+  "name": "DHL Tracking",
+  "content_in_root": true,
+  "zip_release": true,
+  "filename": "dhl_tracking.zip",
+  "hide_default_branch": false,
+  "homeassistant": "2023.1.0"
+}

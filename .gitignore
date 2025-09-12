@@ -144,6 +144,19 @@ ENV/
 env.bak/
 venv.bak/
 
+# Home Assistant specific
+.HA_VERSION
+home-assistant.log
+home-assistant_v2.db
+.storage/
+deps/
+tts/
+secrets.yaml
+
+# Development
+.vscode/
+.idea/
+
 # Spyder project settings
 .spyderproject
 .spyproject

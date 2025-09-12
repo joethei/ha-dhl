@@ -1,0 +1,22 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "DHL Tracking einrichten",
+        "description": "Geben Sie Ihren DHL API-Schlüssel und die zu verfolgenden Sendungsnummern ein.",
+        "data": {
+          "api_key": "DHL API-Schlüssel",
+          "tracking_numbers": "Sendungsnummern (durch Komma getrennt)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Verbindung zur DHL API fehlgeschlagen",
+      "invalid_auth": "Ungültiger API-Schlüssel",
+      "unknown": "Unbekannter Fehler aufgetreten"
+    },
+    "abort": {
+      "already_configured": "Integration ist bereits konfiguriert"
+    }
+  }
+}
