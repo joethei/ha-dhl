@@ -24,7 +24,7 @@ Eine Home Assistant Custom Component zur Verfolgung von DHL-Sendungen über die 
 ### Manuelle Installation
 
 1. Erstelle einen Ordner `dhl_tracking` in deinem Home Assistant `custom_components` Verzeichnis
-2. Kopiere alle Dateien aus diesem Repository in den `custom_components/dhl_tracking` Ordner
+2. Kopiere alle `.py` und `.json` Dateien aus diesem Repository in den `custom_components/dhl_tracking` Ordner
 3. Starte Home Assistant neu
 
 Deine Ordnerstruktur sollte so aussehen:
@@ -39,6 +39,8 @@ custom_components/
     ├── sensor.py
     └── strings.json
 ```
+
+**Wichtig**: Kopiere nur die Component-Dateien (`.py` und `.json`), nicht die anderen Dateien wie `README.md`, `main.py`, etc.
 
 ## Konfiguration
 
@@ -68,16 +70,16 @@ Nach der Einrichtung werden für jede Sendungsnummer Sensoren erstellt:
 ### Beispiel Sensor-Attribute
 
 ```yaml
-tracking_number: "00340434175969812466"
+tracking_number: "1234567890123456789"
 product: "DHL Paket"
 total_pieces: 1
-weight: "2.5 kg"
-origin: "Köln, DE"
-destination: "Berlin, DE"
+weight: "1.2 kg"
+origin: "Hamburg, DE"
+destination: "München, DE"
 status_code: "transit"
-status_timestamp: "2025-09-12T10:30:00"
-status_description: "Die Sendung ist unterwegs zum Ziel-Paketzentrum"
-service_url: "https://www.dhl.de/de/privatkunden/pakete-empfangen/verfolgen.html?piececode=00340434175969812466"
+status_timestamp: "2025-09-12T14:25:00"
+status_description: "Die Sendung wurde im Paketzentrum bearbeitet"
+service_url: "https://www.dhl.de/de/privatkunden/pakete-empfangen/verfolgen.html?piececode=1234567890123456789"
 events: [...] # Vollständiger Sendungsverlauf
 ```
 
@@ -90,7 +92,7 @@ automation:
   - alias: "DHL Paket zugestellt"
     trigger:
       - platform: state
-        entity_id: sensor.dhl_tracking_00340434175969812466
+        entity_id: sensor.dhl_tracking_1234567890123456789
         to: "delivered"
     action:
       - service: notify.mobile_app
