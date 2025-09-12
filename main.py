@@ -1,4 +1,9 @@
 import requests
+import os
+from dotenv import load_dotenv
+
+# Lade Umgebungsvariablen aus .env Datei
+load_dotenv()
 
 
 class DHLTracker:
@@ -6,13 +11,19 @@ class DHLTracker:
     Eine Klasse zur Verfolgung von DHL-Sendungen über die DHL Tracking API.
     """
     
-    def __init__(self, api_key="bdAwk5oAMcJ1Wp9fM7LiZHWa4EAW45F2"):
+    def __init__(self, api_key=None):
         """
         Initialisiert den DHL Tracker mit einem API-Schlüssel.
         
         Args:
-            api_key (str): Der DHL API-Schlüssel
+            api_key (str, optional): Der DHL API-Schlüssel. 
+                                   Falls nicht angegeben, wird DHL_API_KEY aus der .env Datei gelesen.
         """
+        if api_key is None:
+            api_key = os.getenv('DHL_API_KEY')
+            if not api_key:
+                raise ValueError("API-Key nicht gefunden. Bitte DHL_API_KEY in .env Datei setzen oder api_key Parameter übergeben.")
+        
         self.api_key = api_key
         self.base_url = "https://api-eu.dhl.com/track"
     
