@@ -2,17 +2,18 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 import requests
 
-from .const import API_BASE_URL
+from .const import API_BASE_URL, MIN_SCAN_INTERVAL
 
 _LOGGER = logging.getLogger(__name__)
 
 
 class DHLTracker:
-    """DHL Tracking API client."""
+    """DHL Tracking API client with rate limiting."""
 
     def __init__(self, api_key: str) -> None:
         """Initialize the DHL Tracker.
@@ -22,9 +23,51 @@ class DHLTracker:
         """
         self.api_key = api_key
         self.base_url = API_BASE_URL
+        self.last_request_time = 0
+        self.request_count_today = 0
+        self.last_reset_date = time.strftime("%Y-%m-%d")
+
+    def _respect_rate_limit(self) -> None:
+        """Ensure we respect the API rate limits."""
+        current_date = time.strftime("%Y-%m-%d")
+        
+        # Reset daily counter if it's a new day
+        if current_date != self.last_reset_date:
+            self.request_count_today = 0
+            self.last_reset_date = current_date
+            _LOGGER.info("Daily API request counter reset")
+        
+        # Check if we've hit the daily limit
+        if self.request_count_today >= 240:  # Leave some buffer
+            _LOGGER.warning(
+                "Approaching daily API limit (%d/250). Skipping request.",
+                self.request_count_today
+            )
+            raise Exception("Daily API rate limit reached")
+        
+        # Ensure minimum time between requests
+        current_time = time.time()
+        time_since_last = current_time - self.last_request_time
+        
+        if time_since_last < MIN_SCAN_INTERVAL:
+            sleep_time = MIN_SCAN_INTERVAL - time_since_last
+            _LOGGER.debug(
+                "Rate limiting: sleeping for %.1f seconds", sleep_time
+            )
+            time.sleep(sleep_time)
+        
+        self.last_request_time = time.time()
+        self.request_count_today += 1
+        
+        _LOGGER.debug(
+            "API request %d/250 for today", self.request_count_today
+        )
 
     def track_shipment(
-        self, tracking_number: str, service: str | None = None, language: str = "de"
+        self,
+        tracking_number: str,
+        service: str | None = None,
+        language: str = "de"
     ) -> dict[str, Any]:
         """Track a shipment by tracking number.
         
@@ -38,7 +81,11 @@ class DHLTracker:
             
         Raises:
             requests.HTTPError: On API errors
+            Exception: On rate limit violations
         """
+        # Respect rate limits before making request
+        self._respect_rate_limit()
+        
         url = f"{self.base_url}/shipments"
         headers = {
             "DHL-API-Key": self.api_key,
@@ -51,18 +98,26 @@ class DHLTracker:
         if service:
             params["service"] = service
 
-        response = requests.get(url, headers=headers, params=params, timeout=30)
+        _LOGGER.debug(
+            "Making API request for tracking number: %s", tracking_number
+        )
+        
+        response = requests.get(
+            url, headers=headers, params=params, timeout=30
+        )
         response.raise_for_status()
         return response.json()
 
-    def get_shipment_status(self, tracking_number: str) -> dict[str, Any] | None:
-        """Get the current status of a shipment.
+    def get_shipment_status(
+        self, tracking_number: str
+    ) -> dict[str, Any] | None:
+        """Get the complete shipment data from DHL API.
         
         Args:
             tracking_number: The tracking number
             
         Returns:
-            Shipment status information or None if not found
+            Complete shipment data from DHL API or None if not found
         """
         try:
             result = self.track_shipment(tracking_number)
@@ -72,67 +127,23 @@ class DHLTracker:
                 _LOGGER.warning("No shipments found for %s", tracking_number)
                 return None
                 
+            # Return the complete shipment data from the API
             shipment = shipments[0]  # Take the first shipment
-            
-            # Extract relevant information
-            status = shipment.get("status", {})
-            details = shipment.get("details", {})
-            
-            return {
-                "tracking_number": shipment.get("id", tracking_number),
-                "status": status.get("status", "Unknown"),
-                "status_code": status.get("statusCode", ""),
-                "status_timestamp": status.get("timestamp", ""),
-                "description": status.get("description", ""),
-                "product": details.get("product", {}).get("productName", "Unknown"),
-                "total_pieces": details.get("totalNumberOfPieces", 0),
-                "weight": self._get_weight_string(details.get("weight", {})),
-                "origin": self._get_location_string(shipment.get("origin", {})),
-                "destination": self._get_location_string(
-                    shipment.get("destination", {})
-                ),
-                "service_url": shipment.get("serviceUrl", ""),
-                "events": shipment.get("events", []),
-                "raw_data": shipment,
-            }
-        except requests.RequestException as exc:
-            _LOGGER.error("Error tracking shipment %s: %s", tracking_number, exc)
-            return None
-        except Exception as exc:
-            _LOGGER.exception(
-                "Unexpected error tracking shipment %s: %s", tracking_number, exc
+            _LOGGER.debug(
+                "Successfully retrieved data for tracking number: %s",
+                tracking_number
             )
+            return shipment
+            
+        except Exception as exc:
+            if "rate limit" in str(exc).lower():
+                _LOGGER.warning(
+                    "Rate limit reached, skipping update for %s: %s",
+                    tracking_number,
+                    exc
+                )
+            else:
+                _LOGGER.error(
+                    "Error tracking shipment %s: %s", tracking_number, exc
+                )
             return None
-
-    def _get_weight_string(self, weight_info: dict[str, Any]) -> str:
-        """Format weight information as string."""
-        if not weight_info:
-            return "Unknown"
-        
-        value = weight_info.get("value", "")
-        unit = weight_info.get("unitText", "")
-        
-        if value and unit:
-            return f"{value} {unit}"
-        elif value:
-            return str(value)
-        else:
-            return "Unknown"
-
-    def _get_location_string(self, location_info: dict[str, Any]) -> str:
-        """Format location information as string."""
-        if not location_info:
-            return "Unknown"
-        
-        address = location_info.get("address", {})
-        country = address.get("countryCode", "")
-        city = address.get("addressLocality", "")
-        
-        if country and city:
-            return f"{city}, {country}"
-        elif country:
-            return country
-        elif city:
-            return city
-        else:
-            return "Unknown"

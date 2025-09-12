@@ -153,7 +153,7 @@ def main():
     tracker = DHLTracker()
 
     # Beispiel: Trackingnummer verfolgen
-    tracking_number = "00839434175969812466"
+    tracking_number = "00340434175969812466"
     tracker.track_and_display(tracking_number)
 
 
