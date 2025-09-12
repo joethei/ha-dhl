@@ -45,6 +45,14 @@ async def async_setup_entry(
     """Set up DHL Tracking sensors."""
     api_key = config_entry.data[CONF_API_KEY]
     tracking_numbers = config_entry.data.get(CONF_TRACKING_NUMBERS, [])
+    
+    # Ensure tracking_numbers is a list
+    if isinstance(tracking_numbers, str):
+        tracking_numbers = [tracking_numbers]
+    elif not isinstance(tracking_numbers, list):
+        tracking_numbers = []
+    
+    _LOGGER.debug("Setting up sensors for tracking numbers: %s", tracking_numbers)
 
     if not tracking_numbers:
         _LOGGER.warning("No tracking numbers configured")

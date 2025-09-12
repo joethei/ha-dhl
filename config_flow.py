@@ -45,11 +45,16 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
     # Parse tracking numbers
     tracking_numbers = []
     if data.get(CONF_TRACKING_NUMBERS):
-        tracking_numbers = [
-            num.strip() 
-            for num in data[CONF_TRACKING_NUMBERS].split(",") 
-            if num.strip()
-        ]
+        tracking_input = data[CONF_TRACKING_NUMBERS].strip()
+        if tracking_input:
+            # Split by comma and clean up each number
+            tracking_numbers = [
+                num.strip() 
+                for num in tracking_input.split(",") 
+                if num.strip()
+            ]
+    
+    _LOGGER.debug("Parsed tracking numbers: %s", tracking_numbers)
 
     return {
         "title": "DHL Tracking",
