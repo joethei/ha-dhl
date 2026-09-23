@@ -192,6 +192,17 @@ EVENT_SHIPMENT_ADDED: Final = "dhl_tracking_shipment_added"
 EVENT_SHIPMENT_REMOVED: Final = "dhl_tracking_shipment_removed"
 EVENT_STATUS_CHANGED: Final = "dhl_tracking_status_changed"
 
+# Fired from the payload diff: everything below is derived from data that the
+# regular poll already fetched, so none of it costs an extra API request.
+EVENT_SCAN_ADDED: Final = "dhl_tracking_scan_added"
+EVENT_DELIVERY_CHANGED: Final = "dhl_tracking_delivery_changed"
+EVENT_DELIVERY_OVERDUE: Final = "dhl_tracking_delivery_overdue"
+EVENT_REROUTE_AVAILABLE: Final = "dhl_tracking_reroute_available"
+EVENT_PROOF_OF_DELIVERY_AVAILABLE: Final = "dhl_tracking_proof_of_delivery_available"
+
+# How long after the forecast end a shipment is considered overdue.
+DELIVERY_OVERDUE_AFTER_HOURS: Final = 2
+
 # --- Dispatcher -------------------------------------------------------------
 SIGNAL_SHIPMENTS_CHANGED: Final = "dhl_tracking_shipments_changed_{}"
 

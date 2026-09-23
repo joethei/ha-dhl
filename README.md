@@ -160,6 +160,16 @@ Sendungen ohne Zustell-Zeitstempel werden nie automatisch entfernt.
 | `dhl_tracking_shipment_added` | Sendung wurde registriert |
 | `dhl_tracking_shipment_removed` | Sendung wurde entfernt |
 | `dhl_tracking_status_changed` | `status.status` oder `status.statusCode` hat sich geändert |
+| `dhl_tracking_scan_added` | neuer Eintrag in `events[]` – jeder Scan, auch ohne Statuswechsel |
+| `dhl_tracking_delivery_changed` | Zustellfenster oder Zustelltag hat sich verschoben |
+| `dhl_tracking_delivery_overdue` | Prognose um mehr als zwei Stunden überschritten, nicht zugestellt |
+| `dhl_tracking_reroute_available` | DHL liefert einen Umleitungs-Link |
+| `dhl_tracking_proof_of_delivery_available` | Zustellnachweis ist abrufbar |
+
+Alle Ereignisse werden aus dem Vergleich zweier API-Antworten abgeleitet und
+kosten **keinen zusätzlichen Aufruf**. Beim ersten Datensatz einer Sendung
+wird nur ein Ausgangsstand erfasst: Weder ein Neustart noch das Hinzufügen
+einer seit Tagen unterwegs befindlichen Nummer spielt deren Historie nach.
 
 Beispiel-Payload von `dhl_tracking_status_changed`:
 
@@ -480,11 +490,47 @@ proof_of_delivery_url: "https://webpod.dhl.com/pod?token=..."
 > veröffentlicht – insbesondere wird `details.receiver` (der Adressat) *nicht*
 > als `delivered_to` ausgegeben, denn das wäre geraten.
 
+### Einzelne Tracking-Scans
+
+Die fünf dokumentierten Statuscodes verschlucken viel: Eine Sendung kann
+angekündigt, bearbeitet, in der Zielregion angekommen und ins Zustellfahrzeug
+geladen werden, während `statusCode` durchgehend `transit` bleibt.
+
+| Zeit | `status` | `statusCode` |
+|---|---|---|
+| 22.09. 10:44 | `VA` | `pre-transit` |
+| 22.09. 19:01 | `AA` | `transit` |
+| 23.09. 00:38 | `EE` | `transit` |
+| 23.09. 08:24 | `PO` | `transit` |
+
+`dhl_tracking_scan_added` feuert für jeden dieser Schritte:
+
+```yaml
+tracking_number: "00340434778681951569"
+name: "Libre 3 Plus Sensoren"
+status: "EE"
+status_code: "transit"
+status_detailed: "SRTED_NRQRD_PO"
+description: "Die Sendung ist in der Region des Empfängers angekommen …"
+location: "Bremen GVZ, DE"
+timestamp: "2026-09-23T00:38:00+02:00"
+```
+
+Die Codes `VA`/`AA`/`EE`/`PO` sind **nicht dokumentiert** – DHL gibt an, sie
+hingen von der jeweiligen Division ab. Sie werden deshalb als Attribut
+durchgereicht, nicht als Event-Typ, damit ein unbekannter Code nichts bricht.
+
 ### Event-Entität je Sendung
 
-Jede Sendung hat zusätzlich eine Event-Entität (`event.<name>_sendungsstatus`)
-mit den Event-Typen `pre_transit`, `transit`, `out_for_delivery`, `delivered`,
-`failure` und `unknown`. Sie eignet sich als Automationstrigger:
+Jede Sendung hat zwei Event-Entitäten mit den Event-Typen `pre_transit`,
+`transit`, `out_for_delivery`, `delivered`, `failure` und `unknown`:
+
+| Entität | Feuert |
+|---|---|
+| `event.<name>_sendungsstatus` | nur bei einem Statuswechsel |
+| `event.<name>_sendungsereignis` | bei jedem Tracking-Scan |
+
+Beide eignen sich als Automationstrigger:
 
 ```yaml
 triggers:

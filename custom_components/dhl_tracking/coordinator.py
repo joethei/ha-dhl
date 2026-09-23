@@ -54,8 +54,14 @@ from .const import (
     DAILY_REQUEST_BUDGET,
     DELIVERED_SCAN_INTERVAL,
     DELIVERY_IMMINENT_LEAD_HOURS,
+    DELIVERY_OVERDUE_AFTER_HOURS,
     DELIVERY_OVERDUE_GRACE_HOURS,
     DOMAIN,
+    EVENT_DELIVERY_CHANGED,
+    EVENT_DELIVERY_OVERDUE,
+    EVENT_PROOF_OF_DELIVERY_AVAILABLE,
+    EVENT_REROUTE_AVAILABLE,
+    EVENT_SCAN_ADDED,
     EVENT_SHIPMENT_ADDED,
     EVENT_SHIPMENT_REMOVED,
     EVENT_STATUS_CHANGED,
@@ -130,6 +136,8 @@ class ShipmentState:
     """Raw ``status.statusCode`` as returned by the API."""
     effective_status_code: str | None = None
     """``status_code``, refined with the derived ``out_for_delivery``."""
+    overdue_notified_for: str | None = None
+    """Forecast end the overdue event was already fired for."""
 
     @property
     def tracking_number(self) -> str:
@@ -206,6 +214,7 @@ class ShipmentDiff:
 
 ShipmentListener = Callable[[ShipmentDiff], Coroutine[Any, Any, None]]
 StatusListener = Callable[["ShipmentState", dict[str, Any]], None]
+ScanListener = Callable[["ShipmentState", dict[str, Any]], None]
 
 
 def parse_api_datetime(value: Any) -> datetime | None:
@@ -296,6 +305,40 @@ def is_out_for_delivery(data: dict[str, Any] | None, now: datetime) -> bool:
         return False
 
     return now <= end + timedelta(hours=OUT_FOR_DELIVERY_GRACE_HOURS)
+
+
+def expected_delivery_end(data: dict[str, Any] | None) -> datetime | None:
+    """Return when DHL expects the shipment to have arrived.
+
+    The delivery window end is the most precise answer; a forecast that only
+    names a day falls back to the end of that local day, because "some time on
+    Tuesday" is not late until Tuesday is over.
+    """
+    _, end = delivery_time_frame(data)
+    if end is not None:
+        return end
+
+    eta = parse_api_instant((data or {}).get("estimatedTimeOfDelivery"))
+    if eta is None:
+        return None
+    local = dt_util.as_local(eta)
+    if (local.hour, local.minute, local.second) != (0, 0, 0):
+        return eta
+    return local.replace(hour=23, minute=59, second=59)
+
+
+def scan_identity(event: Any) -> tuple[str, str, str] | None:
+    """Return a stable identity for one entry of ``events[]``."""
+    if not isinstance(event, dict):
+        return None
+    timestamp = event.get("timestamp")
+    if not timestamp:
+        return None
+    return (
+        str(timestamp),
+        str(event.get("status") or ""),
+        str(event.get("statusCode") or ""),
+    )
 
 
 def derive_status_code(data: dict[str, Any] | None, now: datetime) -> str | None:
@@ -410,6 +453,7 @@ class DhlUpdateCoordinator(DataUpdateCoordinator[dict[str, ShipmentState]]):
 
         self._shipment_listeners: list[ShipmentListener] = []
         self._status_listeners: list[StatusListener] = []
+        self._scan_listeners: list[ScanListener] = []
         self._last_request_at: datetime | None = None
         self._announce_first_status: set[str] = set()
 
@@ -440,6 +484,7 @@ class DhlUpdateCoordinator(DataUpdateCoordinator[dict[str, ShipmentState]]):
                 state.effective_status_code = restored.get(
                     "effective_status_code"
                 ) or restored.get("status_code")
+                state.overdue_notified_for = restored.get("overdue_notified_for")
             self.states[shipment.tracking_number] = state
 
         self.data = self.states
@@ -471,6 +516,18 @@ class DhlUpdateCoordinator(DataUpdateCoordinator[dict[str, ShipmentState]]):
 
         return _remove
 
+    @callback
+    def async_add_scan_listener(self, listener: ScanListener) -> Callable[[], None]:
+        """Register a listener called for every new tracking scan."""
+        self._scan_listeners.append(listener)
+
+        @callback
+        def _remove() -> None:
+            if listener in self._scan_listeners:
+                self._scan_listeners.remove(listener)
+
+        return _remove
+
     def _persist(self) -> None:
         """Schedule a debounced save of the runtime state."""
         self.store.async_set(
@@ -490,6 +547,7 @@ class DhlUpdateCoordinator(DataUpdateCoordinator[dict[str, ShipmentState]]):
                         "status": state.status,
                         "status_code": state.status_code,
                         "effective_status_code": state.effective_status_code,
+                        "overdue_notified_for": state.overdue_notified_for,
                     }
                     for tracking_number, state in self.states.items()
                 },
@@ -868,8 +926,13 @@ class DhlUpdateCoordinator(DataUpdateCoordinator[dict[str, ShipmentState]]):
 
         state.error = None
         state.last_success = state.last_polled
+        previous = state.data
+        # `_announce_first_status` marks shipments added during this session;
+        # read it before the status handler clears it.
+        is_new = state.tracking_number in self._announce_first_status
         state.data = data
         self._async_handle_status(state, data)
+        self._async_emit_payload_events(state, previous, data, is_new=is_new)
 
     @callback
     def _async_handle_status(self, state: ShipmentState, data: dict[str, Any]) -> None:
@@ -916,6 +979,184 @@ class DhlUpdateCoordinator(DataUpdateCoordinator[dict[str, ShipmentState]]):
         self.hass.bus.async_fire(EVENT_STATUS_CHANGED, payload)
         for listener in list(self._status_listeners):
             listener(state, payload)
+
+    @callback
+    def _async_emit_payload_events(
+        self,
+        state: ShipmentState,
+        previous: dict[str, Any] | None,
+        data: dict[str, Any],
+        *,
+        is_new: bool,
+    ) -> None:
+        """Fire the events that follow from comparing two payloads.
+
+        On the very first payload of a shipment only a baseline is recorded:
+        replaying a shipment's whole history as events after a restart, or on
+        adding a number that has been travelling for days, would be noise. The
+        exception is a shipment added during this session, which does get the
+        one-off "reroute possible" and "proof of delivery" notices.
+        """
+        base = _shipment_event_data(state.shipment)
+        first_payload = previous is None
+
+        if not first_payload:
+            self._async_emit_scans(state, previous, data, base)
+            self._async_emit_delivery_change(previous, data, base)
+
+        if not first_payload or is_new:
+            self._async_emit_appearing_links(previous, data, base)
+
+        self._async_emit_overdue(state, data, base)
+
+    @callback
+    def _async_emit_scans(
+        self,
+        state: ShipmentState,
+        previous: dict[str, Any],
+        data: dict[str, Any],
+        base: dict[str, Any],
+    ) -> None:
+        """Fire one event per tracking scan that was not there before."""
+        seen = {
+            identity
+            for event in previous.get("events") or []
+            if (identity := scan_identity(event)) is not None
+        }
+        new_events = [
+            event
+            for event in data.get("events") or []
+            if (identity := scan_identity(event)) is not None and identity not in seen
+        ]
+        # Oldest first, so automations see them in the order they happened.
+        new_events.sort(key=lambda event: str(event.get("timestamp") or ""))
+
+        for event in new_events:
+            timestamp = parse_api_instant(event.get("timestamp"))
+            payload = {
+                **base,
+                "status": event.get("status"),
+                "status_code": event.get("statusCode"),
+                "status_detailed": event.get("statusDetailed"),
+                "description": event.get("description"),
+                "location": _format_event_place(event.get("location")),
+                "timestamp": timestamp.isoformat() if timestamp else None,
+            }
+            self.hass.bus.async_fire(EVENT_SCAN_ADDED, payload)
+            for listener in list(self._scan_listeners):
+                listener(state, payload)
+
+    @callback
+    def _async_emit_delivery_change(
+        self,
+        previous: dict[str, Any],
+        data: dict[str, Any],
+        base: dict[str, Any],
+    ) -> None:
+        """Fire when the delivery window or the delivery day moved."""
+        old_from, old_through = delivery_time_frame(previous)
+        new_from, new_through = delivery_time_frame(data)
+        old_date = _forecast_date(previous)
+        new_date = _forecast_date(data)
+
+        if (old_from, old_through, old_date) == (new_from, new_through, new_date):
+            return
+
+        self.hass.bus.async_fire(
+            EVENT_DELIVERY_CHANGED,
+            {
+                **base,
+                "old_from": old_from.isoformat() if old_from else None,
+                "old_through": old_through.isoformat() if old_through else None,
+                "new_from": new_from.isoformat() if new_from else None,
+                "new_through": new_through.isoformat() if new_through else None,
+                "old_date": old_date,
+                "new_date": new_date,
+            },
+        )
+
+    @callback
+    def _async_emit_appearing_links(
+        self,
+        previous: dict[str, Any] | None,
+        data: dict[str, Any],
+        base: dict[str, Any],
+    ) -> None:
+        """Fire when a reroute link or a proof of delivery becomes available."""
+        if (reroute := data.get("rerouteUrl")) and not (previous or {}).get(
+            "rerouteUrl"
+        ):
+            self.hass.bus.async_fire(
+                EVENT_REROUTE_AVAILABLE, {**base, "reroute_url": reroute}
+            )
+
+        pod = _proof_of_delivery(data)
+        if pod and not _proof_of_delivery(previous):
+            self.hass.bus.async_fire(
+                EVENT_PROOF_OF_DELIVERY_AVAILABLE,
+                {**base, "proof_of_delivery_url": pod},
+            )
+
+    @callback
+    def _async_emit_overdue(
+        self, state: ShipmentState, data: dict[str, Any], base: dict[str, Any]
+    ) -> None:
+        """Fire once when a forecast passed without the shipment arriving."""
+        if state.delivered:
+            return
+        expected = expected_delivery_end(data)
+        if expected is None:
+            state.overdue_notified_for = None
+            return
+
+        marker = expected.isoformat()
+        if state.overdue_notified_for == marker:
+            return
+        if dt_util.utcnow() <= expected + timedelta(hours=DELIVERY_OVERDUE_AFTER_HOURS):
+            # Forecast still ahead, or inside the grace period. A rescheduled
+            # forecast clears the marker so a later delay is reported again.
+            state.overdue_notified_for = None
+            return
+
+        state.overdue_notified_for = marker
+        self.hass.bus.async_fire(
+            EVENT_DELIVERY_OVERDUE,
+            {
+                **base,
+                "expected_through": marker,
+                "status_code": state.effective_status_code,
+                "description": (data.get("status") or {}).get("description"),
+            },
+        )
+
+
+def _forecast_date(data: dict[str, Any] | None) -> str | None:
+    """Return the expected delivery day as an ISO date string."""
+    start, _ = delivery_time_frame(data)
+    if start is not None:
+        return dt_util.as_local(start).date().isoformat()
+    eta = parse_api_instant((data or {}).get("estimatedTimeOfDelivery"))
+    return dt_util.as_local(eta).date().isoformat() if eta else None
+
+
+def _proof_of_delivery(data: dict[str, Any] | None) -> str | None:
+    """Return the proof of delivery document link, when present."""
+    details = (data or {}).get("details")
+    details = details if isinstance(details, dict) else {}
+    pod = details.get("proofOfDelivery")
+    return pod.get("documentUrl") if isinstance(pod, dict) else None
+
+
+def _format_event_place(place: Any) -> str | None:
+    """Return ``City, Country`` for a scan location."""
+    address = place.get("address") if isinstance(place, dict) else None
+    if not isinstance(address, dict):
+        return None
+    city = address.get("addressLocality")
+    country = address.get("countryCode")
+    if city and country:
+        return f"{city}, {country}"
+    return city or country or None
 
 
 def _shipment_event_data(shipment: Shipment) -> dict[str, Any]:

@@ -233,6 +233,21 @@
             }
           }
         }
+      },
+      "shipment_scan": {
+        "name": "Tracking scan",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "pre_transit": "Pre-transit",
+              "transit": "In transit",
+              "out_for_delivery": "Out for delivery",
+              "delivered": "Delivered",
+              "failure": "Failure",
+              "unknown": "Unknown"
+            }
+          }
+        }
       }
     }
   },

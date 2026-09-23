@@ -233,6 +233,21 @@
             }
           }
         }
+      },
+      "shipment_scan": {
+        "name": "Sendungsereignis",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "pre_transit": "Angekündigt",
+              "transit": "Unterwegs",
+              "out_for_delivery": "In Zustellung",
+              "delivered": "Zugestellt",
+              "failure": "Fehlgeschlagen",
+              "unknown": "Unbekannt"
+            }
+          }
+        }
       }
     }
   },

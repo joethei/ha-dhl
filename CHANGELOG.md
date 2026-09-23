@@ -3,6 +3,35 @@
 Alle nennenswerten Änderungen an dieser Integration.
 Das Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [0.6.0] – 2026-09-23
+
+### Hinzugefügt
+
+Fünf neue Ereignisse, alle aus dem Vergleich zweier API-Antworten abgeleitet –
+sie kosten **keinen zusätzlichen API-Aufruf**:
+
+- `dhl_tracking_scan_added` – bei jedem neuen Eintrag in `events[]`, mit dem
+  bereichsspezifischen Code (`VA`, `AA`, `EE`, `PO`, …), Beschreibung, Ort und
+  zeitzonenbehaftetem Zeitstempel. Legt die Zwischenschritte frei, die der
+  fünfwertige `statusCode` verschluckt.
+- `dhl_tracking_delivery_changed` – wenn sich das Zustellfenster oder der
+  Zustelltag ändert, mit alten und neuen Werten.
+- `dhl_tracking_delivery_overdue` – wenn die Prognose zwei Stunden
+  überschritten ist und die Sendung nicht zugestellt wurde. Feuert einmal je
+  Prognose; eine neu angesetzte Zustellung kann erneut überfällig werden.
+- `dhl_tracking_reroute_available` – sobald DHL einen Umleitungs-Link
+  mitliefert.
+- `dhl_tracking_proof_of_delivery_available` – sobald der Zustellnachweis
+  abrufbar ist.
+
+Dazu eine zweite Event-Entität je Sendung:
+`event.<name>_sendungsereignis` für Tracking-Scans, ergänzend zur bestehenden
+`event.<name>_sendungsstatus` für Statuswechsel.
+
+Beim ersten Datensatz einer Sendung wird nur ein Ausgangsstand erfasst – weder
+ein Neustart noch das Hinzufügen einer länger unterwegs befindlichen Nummer
+spielt die Historie als Ereignisse nach.
+
 ## [0.5.2] – 2026-09-23
 
 ### Geändert
