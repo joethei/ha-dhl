@@ -443,6 +443,34 @@ Für Fehlerberichte bitte die **Diagnosedaten** des Eintrags herunterladen
 (*Geräte & Dienste → DHL Tracking → ⋮ → Diagnose herunterladen*) – sie sind
 bereits redigiert.
 
+## HACS-Standardstore
+
+Die Integration wird als **Custom Repository** installiert (siehe oben). Dafür
+ist keine HACS-Validierung nötig.
+
+Für eine Aufnahme in den HACS-**Standardstore** müssten zusätzlich vier Punkte
+erfüllt sein, die nichts mit dem Code zu tun haben und deshalb im CI-Workflow
+über `ignore:` übersprungen werden:
+
+| Prüfung | Was fehlt |
+|---|---|
+| `description` | Repository-Beschreibung in den GitHub-Einstellungen |
+| `topics` | Mindestens ein Repository-Topic, z. B. `home-assistant`, `hacs`, `dhl` |
+| `issues` | Issues müssen im Repository aktiviert sein |
+| `brands` | Markenlogo (siehe unten) |
+
+Die `brands`-Prüfung sucht zuerst nach
+`custom_components/dhl_tracking/brand/icon.png` (nur Existenz, keine
+Größenprüfung) und fragt sonst `brands.home-assistant.io/domains.json` ab.
+`dhl_tracking` ist dort aktuell in keinem der 4232 Custom-Domains gelistet.
+
+Für einen Beitrag an [home-assistant/brands](https://github.com/home-assistant/brands)
+gelten: `custom_integrations/dhl_tracking/icon.png` mit 256×256 px und
+`icon@2x.png` mit 512×512 px, PNG, Transparenz bevorzugt. Wichtig: Custom
+Integrations dürfen **keine** Home-Assistant-Markenbilder verwenden, und ein
+nachgebautes DHL-Logo wäre eine Markenrechtsfrage – hier wird bewusst kein
+Asset erfunden.
+
 ## Entwicklung
 
 ```bash

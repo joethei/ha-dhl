@@ -35,6 +35,22 @@ jobs:
       - uses: hacs/action@main
         with:
           category: integration
+          # These four checks validate readiness for the HACS *default store*,
+          # not the integration itself. They cannot pass from CI here:
+          #
+          #   topics / description / issues
+          #     GitHub repository settings, not repository content. They also
+          #     fail on every fork, because forks start without a description
+          #     and with issues disabled.
+          #   brands
+          #     Requires either custom_components/dhl_tracking/brand/icon.png
+          #     or a `dhl_tracking` entry in home-assistant/brands. Neither
+          #     exists; see README "HACS-Standardstore" for what it takes.
+          #
+          # The checks that validate the repository content - hacs.json, the
+          # integration manifest, the license, the information file and the
+          # archived state - still run and still gate this job.
+          ignore: topics description issues brands
 
   tests:
     name: Tests
