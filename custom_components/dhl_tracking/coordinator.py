@@ -443,6 +443,7 @@ class DhlUpdateCoordinator(DataUpdateCoordinator[dict[str, ShipmentState]]):
             self.states[shipment.tracking_number] = state
 
         self.data = self.states
+        self.update_interval = self.tick_interval()
 
     @callback
     def async_add_shipment_listener(
@@ -503,7 +504,7 @@ class DhlUpdateCoordinator(DataUpdateCoordinator[dict[str, ShipmentState]]):
         self.options = options
 
         if options.scan_interval != previous.scan_interval:
-            self.update_interval = timedelta(seconds=options.scan_interval)
+            self._async_apply_tick_interval()
 
         diff = self._diff_shipments(options.shipments)
         if not diff:
@@ -529,6 +530,7 @@ class DhlUpdateCoordinator(DataUpdateCoordinator[dict[str, ShipmentState]]):
             await listener(diff)
 
         self._async_sync_devices(diff)
+        self._async_apply_tick_interval()
         self._persist()
 
         for shipment in diff.added:
@@ -668,6 +670,37 @@ class DhlUpdateCoordinator(DataUpdateCoordinator[dict[str, ShipmentState]]):
             self.fair_share_interval(priority, now),
         )
 
+    def tick_interval(self, now: datetime | None = None) -> timedelta:
+        """Return how often the coordinator itself has to wake up.
+
+        A per-shipment interval can only be honoured if the coordinator checks
+        at least that often, so the tick is the shortest effective interval of
+        any shipment. Without the shortest one driving it, a parcel out for
+        delivery would still only be looked at once per configured interval.
+        """
+        now = now or dt_util.utcnow()
+        intervals = [
+            interval
+            for state in self.states.values()
+            if (interval := self.effective_interval(state, now)) is not None
+        ]
+        if not intervals:
+            return timedelta(seconds=self.options.scan_interval)
+        return min(intervals)
+
+    @callback
+    def _async_apply_tick_interval(self) -> None:
+        """Re-schedule the coordinator when the required tick rate changed."""
+        tick = self.tick_interval()
+        if tick == self.update_interval:
+            return
+        _LOGGER.debug(
+            "Adjusting DHL poll tick from %s to %s", self.update_interval, tick
+        )
+        self.update_interval = tick
+        if self._listeners:
+            self._schedule_refresh()
+
     def estimated_daily_requests(self, now: datetime | None = None) -> float:
         """Return the scheduled number of API requests per day.
 
@@ -742,6 +775,9 @@ class DhlUpdateCoordinator(DataUpdateCoordinator[dict[str, ShipmentState]]):
         if polled:
             self._persist()
             self._async_schedule_auto_cleanup()
+        # Priorities change with the payload and with time, so the tick rate
+        # is recalculated on every cycle, not just when options change.
+        self._async_apply_tick_interval()
         return self.states
 
     @callback

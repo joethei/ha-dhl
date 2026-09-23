@@ -605,6 +605,11 @@ Mit dem Standardintervall von 30 Minuten:
 | 1× in Zustellung + 5× unterwegs + 4× angekündigt | 24 / 72 / 144 min | 200 |
 | 3× unterwegs + 20× zugestellt | 30 min + 1×/Tag | 164 |
 
+Der Coordinator wacht so oft auf, wie es die **dringendste** Sendung verlangt –
+sonst könnte ein kürzeres Intervall nie greifen. Der Takt wird nach jedem
+Abfragezyklus neu bestimmt, weil sich die Priorität mit der Zustellprognose
+und mit der Uhrzeit ändert.
+
 **Der geplante Tagesverbrauch übersteigt 200 Aufrufe nie** – auch nicht bei 260
 Sendungen; dann wächst das Intervall entsprechend, statt das Budget zu
 überziehen. Ein harter Zähler bricht den Abfragezyklus zusätzlich ab, sobald
@@ -650,6 +655,31 @@ Zustell-Zeitstempel werden nie automatisch entfernt.
 
 Die Aktion `dhl_tracking.remove_delivered_shipments` bleibt unverändert
 verfügbar, falls das Aufräumen lieber über eine eigene Automation laufen soll.
+
+## Wann wurde zuletzt aktualisiert?
+
+Der Sensor **Statuscode** trägt die Abfragediagnose als Attribute:
+
+```yaml
+last_polled: "2026-09-23T12:40:11+00:00"   # letzter Abrufversuch
+last_updated: "2026-09-23T12:40:11+00:00"  # letzter *erfolgreicher* Abruf
+next_update: "2026-09-23T12:50:11+00:00"
+poll_interval_minutes: 10.0
+last_error: null                            # z. B. "not_found", "api_error"
+rate_limit_backoff_until: null              # nur bei HTTP 429
+```
+
+Damit lässt sich „warum steht da noch der alte Wert" ohne Debug-Logging klären:
+
+| Beobachtung | Bedeutung |
+|---|---|
+| `poll_interval_minutes` ist 30 statt 10 | DHL liefert kein Zustellfenster, die Sendung gilt als normal unterwegs – prüfbar an `reroute_available` und am Attribut `time_frame_from` |
+| `last_polled` ist aktuell, `last_updated` alt | Der Abruf läuft, schlägt aber fehl – siehe `last_error` |
+| `rate_limit_backoff_until` gesetzt | HTTP 429, die Integration pausiert bis dahin |
+| `remaining_today` am API-Sensor ist 0 | Tagesbudget erschöpft |
+
+Ist die Entität `unavailable`, blendet Home Assistant alle Attribute aus. Dann
+hilft *Geräte & Dienste → DHL Tracking → ⋮ → Diagnose herunterladen*.
 
 ## Datenmodell und Persistenz
 

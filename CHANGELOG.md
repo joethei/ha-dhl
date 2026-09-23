@@ -3,6 +3,25 @@
 Alle nennenswerten Änderungen an dieser Integration.
 Das Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [0.5.1] – 2026-09-23
+
+### Behoben
+
+- **Sendungen in Zustellung wurden nicht alle 10 Minuten abgefragt.** Der
+  Coordinator wachte nur im konfigurierten Abfrageintervall auf (Standard
+  30 Minuten) und prüfte erst dann, welche Sendung fällig ist. Das kürzere
+  Intervall einer Sendung in Zustellung konnte deshalb nie greifen – die in
+  der README dokumentierten 10 Minuten waren in der Praxis 30. Der
+  Aufwachtakt richtet sich jetzt nach der dringendsten Sendung und wird nach
+  jedem Abfragezyklus neu bestimmt.
+
+### Hinzugefügt
+
+- Der Sensor **Statuscode** trägt Attribute zum Abfragezeitpunkt:
+  `last_polled`, `last_updated`, `next_update`, `poll_interval_minutes` und
+  `last_error`. Damit lässt sich ohne Debug-Logging sehen, warum ein Wert noch
+  alt ist.
+
 ## [0.5.0] – 2026-09-23
 
 ### Hinzugefügt

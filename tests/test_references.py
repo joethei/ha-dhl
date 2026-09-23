@@ -231,3 +231,92 @@ async def test_short_text_gets_no_full_value(
     await setup_with(hass, shipment_responses)
     attrs = hass.states.get(f"{PREFIX}_status_description").attributes
     assert "full_value" not in attrs
+
+
+# --- poll diagnostics ------------------------------------------------------------
+
+
+async def test_status_code_publishes_poll_timing(
+    hass: HomeAssistant, mock_api: AsyncMock, shipment_responses: dict
+) -> None:
+    """The dashboard can see when data was fetched and when it is due again."""
+    from homeassistant.util import dt as dt_util
+
+    await setup_with(hass, shipment_responses)
+
+    attrs = hass.states.get(f"{PREFIX}_status_code").attributes
+    last_polled = dt_util.parse_datetime(attrs["last_polled"])
+    next_update = dt_util.parse_datetime(attrs["next_update"])
+    assert last_polled is not None
+    assert dt_util.parse_datetime(attrs["last_updated"]) == last_polled
+    assert attrs["last_error"] is None
+    assert attrs["poll_interval_minutes"] == 30.0
+    assert (next_update - last_polled).total_seconds() == 30 * 60
+
+
+async def test_poll_timing_reflects_the_faster_lane(
+    hass: HomeAssistant, mock_api: AsyncMock, shipment_responses: dict
+) -> None:
+    """A parcel out for delivery reports its shorter interval."""
+    from homeassistant.util import dt as dt_util
+
+    day = dt_util.now().date().isoformat()
+    await setup_with(
+        hass,
+        shipment_responses,
+        estimatedDeliveryTimeFrame={
+            "estimatedFrom": f"{day}T00:00:00",
+            "estimatedThrough": f"{day}T23:59:00",
+        },
+    )
+
+    attrs = hass.states.get(f"{PREFIX}_status_code").attributes
+    assert attrs["poll_interval_minutes"] == 10.0
+
+
+async def test_poll_timing_reports_a_failed_refresh(
+    hass: HomeAssistant, mock_api: AsyncMock, shipment_responses: dict
+) -> None:
+    """A failed refresh is visible next to the stale value."""
+    from custom_components.dhl_tracking.api import DhlConnectionError
+
+    entry = build_config_entry(shipments=[{"tracking_number": TRACKING_NUMBER}])
+    await setup_integration(hass, entry)
+    coordinator = entry.runtime_data.coordinator
+    first_success = hass.states.get(f"{PREFIX}_status_code").attributes["last_updated"]
+
+    shipment_responses[TRACKING_NUMBER] = DhlConnectionError()
+    coordinator.states[TRACKING_NUMBER].last_polled = None
+    await coordinator.async_refresh()
+
+    attrs = hass.states.get(f"{PREFIX}_status_code").attributes
+    assert attrs["last_error"] == "api_error"
+    # The attempt is recorded, the last *successful* update is not moved.
+    assert attrs["last_updated"] == first_success
+    assert attrs["last_polled"] > first_success
+
+
+async def test_no_attributes_while_unavailable(
+    hass: HomeAssistant, mock_api: AsyncMock, shipment_responses: dict
+) -> None:
+    """Home Assistant drops all attributes of an unavailable entity.
+
+    A shipment DHL does not know has no data at all, so the poll diagnostics
+    are only reachable through the downloadable diagnostics in that case.
+    """
+    from custom_components.dhl_tracking.api import DhlNotFoundError
+    from custom_components.dhl_tracking.diagnostics import (
+        async_get_config_entry_diagnostics,
+    )
+
+    shipment_responses[TRACKING_NUMBER] = DhlNotFoundError(TRACKING_NUMBER)
+    entry = build_config_entry(shipments=[{"tracking_number": TRACKING_NUMBER}])
+    await setup_integration(hass, entry)
+
+    assert hass.states.get(f"{PREFIX}_status_code").state == "unavailable"
+
+    diagnostics = await async_get_config_entry_diagnostics(hass, entry)
+    shipment = diagnostics["shipments"][0]
+    assert shipment["error"] == "not_found"
+    assert shipment["last_polled"] is not None
+    assert shipment["last_success"] is None

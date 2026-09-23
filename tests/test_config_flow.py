@@ -315,7 +315,12 @@ async def test_options_flow_settings(
     assert options.language == "en"
     assert options.poll_delivered is False
     assert coordinator.options.language == "en"
-    assert coordinator.update_interval.total_seconds() == MIN_SCAN_INTERVAL
+    assert coordinator.options.scan_interval == MIN_SCAN_INTERVAL
+    # The coordinator ticks as often as the most urgent shipment needs, which
+    # is never less often than the configured interval.
+    state = next(iter(coordinator.states.values()))
+    assert coordinator.update_interval == coordinator.effective_interval(state)
+    assert coordinator.update_interval.total_seconds() >= MIN_SCAN_INTERVAL
 
 
 async def test_options_menu_without_shipments(

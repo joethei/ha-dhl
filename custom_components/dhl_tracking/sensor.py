@@ -285,6 +285,8 @@ class DhlSensorEntityDescription(SensorEntityDescription):
     value_fn: Callable[[dict[str, Any]], Any]
     unit_fn: Callable[[dict[str, Any] | None], str | None] | None = None
     extra_attrs_fn: Callable[[dict[str, Any]], dict[str, Any]] | None = None
+    include_poll_info: bool = False
+    """Publish when this shipment was last fetched and when it is due next."""
 
 
 def _status_attributes(data: dict[str, Any]) -> dict[str, Any]:
@@ -408,6 +410,7 @@ SENSOR_DESCRIPTIONS: tuple[DhlSensorEntityDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda data: derive_status_code(data, dt_util.utcnow()),
         extra_attrs_fn=_summary_attributes,
+        include_poll_info=True,
     ),
     DhlSensorEntityDescription(
         key="status_timestamp",
@@ -607,8 +610,10 @@ class DhlShipmentSensor(CoordinatorEntity[DhlUpdateCoordinator], SensorEntity):
 
     _attr_has_entity_name = True
     _attr_attribution = ATTRIBUTION
-    # The event history is long and changes on every update.
-    _unrecorded_attributes = frozenset({"events"})
+    # Long or per-poll churn - useful live, pointless in the database.
+    _unrecorded_attributes = frozenset(
+        {"events", "references", "last_polled", "last_updated", "next_update"}
+    )
     entity_description: DhlSensorEntityDescription
 
     def __init__(
@@ -691,7 +696,44 @@ class DhlShipmentSensor(CoordinatorEntity[DhlUpdateCoordinator], SensorEntity):
         raw = self._raw_value()
         if isinstance(raw, str) and len(raw) > MAX_LENGTH_STATE_STATE:
             attrs["full_value"] = raw
+
+        if self.entity_description.include_poll_info and state is not None:
+            attrs.update(self._poll_info(state))
         return attrs
+
+    def _poll_info(self, state: ShipmentState) -> dict[str, Any]:
+        """Return when this shipment was fetched and when it is due again.
+
+        Answers "why does Home Assistant still show the old value" without
+        having to turn on debug logging.
+        """
+        coordinator = self.coordinator
+        now = dt_util.utcnow()
+        info: dict[str, Any] = {
+            "last_polled": (
+                state.last_polled.isoformat() if state.last_polled else None
+            ),
+            "last_updated": (
+                state.last_success.isoformat() if state.last_success else None
+            ),
+            "last_error": state.error,
+        }
+
+        interval = coordinator.effective_interval(state, now)
+        if interval is None:
+            info["poll_interval_minutes"] = None
+            info["next_update"] = None
+        else:
+            info["poll_interval_minutes"] = round(interval.total_seconds() / 60, 1)
+            info["next_update"] = (
+                (state.last_polled + interval).isoformat()
+                if state.last_polled
+                else None
+            )
+
+        if (blocked := coordinator.budget.backoff_until) is not None and now < blocked:
+            info["rate_limit_backoff_until"] = blocked.isoformat()
+        return info
 
 
 class DhlApiUsageSensor(CoordinatorEntity[DhlUpdateCoordinator], SensorEntity):

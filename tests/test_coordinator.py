@@ -711,3 +711,164 @@ async def test_delivered_shipments_free_budget_for_the_rest(
         ShipmentPriority.TRANSIT
     ).total_seconds() == pytest.approx(86400 / 45)
     assert coordinator.estimated_daily_requests() == pytest.approx(200)
+
+
+# --- tick rate ------------------------------------------------------------------
+
+
+async def test_tick_follows_the_most_urgent_shipment(
+    hass: HomeAssistant, mock_api: AsyncMock, shipment_responses: dict
+) -> None:
+    """A parcel out for delivery must actually be checked every 10 minutes.
+
+    The per-shipment interval can only be honoured if the coordinator wakes up
+    at least that often, so the tick has to follow the shortest one.
+    """
+    local_now = dt_util.now()
+    day = local_now.date().isoformat()
+    shipment_responses[TRACKING_NUMBER] = shipment_payload(
+        TRACKING_NUMBER,
+        estimated_delivery=None,
+        delivery_time_frame={
+            "estimatedFrom": f"{day}T00:00:00",
+            "estimatedThrough": f"{day}T23:59:00",
+        },
+    )
+    shipment_responses[OTHER_TRACKING_NUMBER] = shipment_payload(
+        OTHER_TRACKING_NUMBER, estimated_delivery=None
+    )
+    entry = build_config_entry(
+        shipments=[
+            {"tracking_number": TRACKING_NUMBER},
+            {"tracking_number": OTHER_TRACKING_NUMBER},
+        ]
+    )
+    await setup_integration(hass, entry)
+    coordinator = entry.runtime_data.coordinator
+
+    now = dt_util.utcnow()
+    urgent = coordinator.states[TRACKING_NUMBER]
+    slow = coordinator.states[OTHER_TRACKING_NUMBER]
+    assert coordinator.effective_interval(urgent, now) < coordinator.effective_interval(
+        slow, now
+    )
+    assert coordinator.update_interval == coordinator.effective_interval(urgent, now)
+    assert coordinator.update_interval <= timedelta(minutes=10)
+
+
+async def test_tick_without_shipments_is_the_configured_interval(
+    hass: HomeAssistant, mock_api: AsyncMock
+) -> None:
+    """Without shipments there is nothing to accelerate for."""
+    entry = build_config_entry(shipments=[])
+    await setup_integration(hass, entry)
+    coordinator = entry.runtime_data.coordinator
+    assert coordinator.update_interval == timedelta(
+        seconds=coordinator.options.scan_interval
+    )
+
+
+async def test_tick_speeds_up_when_a_shipment_goes_out_for_delivery(
+    hass: HomeAssistant, mock_api: AsyncMock, shipment_responses: dict
+) -> None:
+    """The tick is recalculated from the payload, not only from the options."""
+    entry = build_config_entry(shipments=[{"tracking_number": TRACKING_NUMBER}])
+    await setup_integration(hass, entry)
+    coordinator = entry.runtime_data.coordinator
+    before = coordinator.update_interval
+
+    day = dt_util.now().date().isoformat()
+    shipment_responses[TRACKING_NUMBER] = shipment_payload(
+        TRACKING_NUMBER,
+        estimated_delivery=None,
+        delivery_time_frame={
+            "estimatedFrom": f"{day}T00:00:00",
+            "estimatedThrough": f"{day}T23:59:00",
+        },
+    )
+    coordinator.states[TRACKING_NUMBER].last_polled = None
+    await coordinator.async_refresh()
+
+    assert coordinator.update_interval < before
+    assert coordinator.update_interval <= timedelta(minutes=10)
+
+
+async def test_tick_slows_down_again_after_delivery(
+    hass: HomeAssistant, mock_api: AsyncMock, shipment_responses: dict
+) -> None:
+    """Once delivered, the fast tick is given up again."""
+    day = dt_util.now().date().isoformat()
+    shipment_responses[TRACKING_NUMBER] = shipment_payload(
+        TRACKING_NUMBER,
+        estimated_delivery=None,
+        delivery_time_frame={
+            "estimatedFrom": f"{day}T00:00:00",
+            "estimatedThrough": f"{day}T23:59:00",
+        },
+    )
+    entry = build_config_entry(shipments=[{"tracking_number": TRACKING_NUMBER}])
+    await setup_integration(hass, entry)
+    coordinator = entry.runtime_data.coordinator
+    assert coordinator.update_interval <= timedelta(minutes=10)
+
+    shipment_responses[TRACKING_NUMBER] = shipment_payload(
+        TRACKING_NUMBER, status="Delivered", status_code="delivered"
+    )
+    coordinator.states[TRACKING_NUMBER].last_polled = None
+    await coordinator.async_refresh()
+
+    assert coordinator.update_interval == timedelta(seconds=DELIVERED_SCAN_INTERVAL)
+    assert coordinator.estimated_daily_requests() == pytest.approx(1.0)
+
+
+async def test_out_for_delivery_is_really_polled_every_ten_minutes(
+    hass: HomeAssistant,
+    mock_api: AsyncMock,
+    shipment_responses: dict,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """End to end proof with a running clock, not just the arithmetic.
+
+    Guards the regression where the coordinator only woke up once per
+    configured interval, so the shorter per-shipment interval of a parcel out
+    for delivery could never take effect.
+    """
+    day = dt_util.now().date().isoformat()
+    shipment_responses[TRACKING_NUMBER] = shipment_payload(
+        TRACKING_NUMBER,
+        estimated_delivery=None,
+        delivery_time_frame={
+            "estimatedFrom": f"{day}T00:00:00",
+            "estimatedThrough": f"{day}T23:59:00",
+        },
+    )
+    entry = build_config_entry(shipments=[{"tracking_number": TRACKING_NUMBER}])
+    await setup_integration(hass, entry)
+
+    calls_after_setup = mock_api.call_count
+    for _ in range(6):
+        await advance(hass, freezer, 600)
+
+    # One hour at a ten minute interval.
+    assert mock_api.call_count - calls_after_setup == 6
+
+
+async def test_plain_transit_keeps_the_configured_interval(
+    hass: HomeAssistant,
+    mock_api: AsyncMock,
+    shipment_responses: dict,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """An ordinary shipment is not accelerated by the same mechanism."""
+    shipment_responses[TRACKING_NUMBER] = shipment_payload(
+        TRACKING_NUMBER, estimated_delivery=None
+    )
+    entry = build_config_entry(shipments=[{"tracking_number": TRACKING_NUMBER}])
+    await setup_integration(hass, entry)
+
+    calls_after_setup = mock_api.call_count
+    for _ in range(6):
+        await advance(hass, freezer, 600)
+
+    # 30 minute interval -> two polls in an hour.
+    assert mock_api.call_count - calls_after_setup == 2
