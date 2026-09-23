@@ -1,6 +1,7 @@
-import requests
 import os
+
 from dotenv import load_dotenv
+import requests
 
 # Lade Umgebungsvariablen aus .env Datei
 load_dotenv()
