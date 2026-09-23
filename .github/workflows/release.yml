@@ -17,7 +17,17 @@ jobs:
       
     - name: Extract version from tag
       id: version
-      run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+      run: |
+        VERSION=${GITHUB_REF#refs/tags/}
+        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+        # Tags mit Suffix (v1.2.3-beta.1, -rc.2, ...) werden als Pre-Release
+        # veroeffentlicht. HACS blendet die hinter "Beta-Versionen anzeigen"
+        # aus und nimmt als "latest" weiterhin das letzte normale Release.
+        if [[ "$VERSION" == *-* ]]; then
+          echo "PRERELEASE=true" >> $GITHUB_OUTPUT
+        else
+          echo "PRERELEASE=false" >> $GITHUB_OUTPUT
+        fi
       
     - name: Update manifest.json version
       run: |
@@ -43,7 +53,7 @@ jobs:
         unzip -l dhl_tracking.zip
         
     - name: Create Release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v2
       with:
         name: DHL Tracking ${{ steps.version.outputs.VERSION }}
         body: |
@@ -70,4 +80,4 @@ jobs:
           📥 **Für manuelle Installation**: Lade `dhl_tracking.zip` herunter
         files: dhl_tracking.zip
         draft: false
-        prerelease: false
+        prerelease: ${{ steps.version.outputs.PRERELEASE }}
