@@ -1,0 +1,61 @@
+# Field definitions for the DHL Tracking actions.
+# Names and descriptions live in strings.json / translations/*.json so they can
+# be translated (the modern Home Assistant convention).
+
+add_shipment:
+  fields:
+    tracking_number:
+      required: true
+      example: "00340434123456789012"
+      selector:
+        text:
+    name:
+      required: false
+      example: "Ersatzteil"
+      selector:
+        text:
+    recipient_postal_code:
+      required: false
+      example: "12345"
+      selector:
+        text:
+    config_entry_id:
+      required: false
+      advanced: true
+      selector:
+        config_entry:
+          integration: dhl_tracking
+
+remove_shipment:
+  fields:
+    tracking_number:
+      required: true
+      example: "00340434123456789012"
+      selector:
+        text:
+    config_entry_id:
+      required: false
+      advanced: true
+      selector:
+        config_entry:
+          integration: dhl_tracking
+
+remove_delivered_shipments:
+  fields:
+    older_than_days:
+      required: false
+      default: 7   # matches DEFAULT_OLDER_THAN_DAYS
+      example: 7
+      selector:
+        number:
+          min: 0
+          max: 365
+          step: 1
+          unit_of_measurement: days
+          mode: box
+    config_entry_id:
+      required: false
+      advanced: true
+      selector:
+        config_entry:
+          integration: dhl_tracking
