@@ -656,6 +656,39 @@ Zustell-Zeitstempel werden nie automatisch entfernt.
 Die Aktion `dhl_tracking.remove_delivered_shipments` bleibt unverändert
 verfügbar, falls das Aufräumen lieber über eine eigene Automation laufen soll.
 
+## Die App zeigt andere Zeiten als Home Assistant
+
+Die DHL-App und die offizielle Entwickler-API sind **zwei verschiedene
+Datenquellen**. Die App kennt dich als angemeldeten Empfänger und greift auf
+einen internen Dienst zu; die Tracking-API liefert einen eigenen Stand, der
+hinterherhinken kann.
+
+Ein nachgemessener Fall: Die App zeigte ein Zustellfenster von 14:30–16:00,
+die API lieferte zur selben Zeit 13:20–14:50 – und zwar identisch mit und ohne
+`recipientPostalCode`.
+
+Nachprüfen lässt sich das in einem Aufruf:
+
+```bash
+curl -s -H "DHL-API-Key: $KEY" \
+  "https://api-eu.dhl.com/track/shipments?trackingNumber=$TN&language=de" \
+| python3 -c "import json,sys; d=json.load(sys.stdin)['shipments'][0]; \
+print(d.get('estimatedDeliveryTimeFrame'), d.get('estimatedTimeOfDelivery'))"
+```
+
+Kommt dort dasselbe heraus wie in Home Assistant, reicht die Integration
+korrekt durch. Häufigeres Abfragen hilft dann nicht – es würde nur öfter
+derselbe Stand geholt. Die API hat **kein Feld**, das ihr eigenes Alter
+verrät: `status.timestamp` ist der Zeitpunkt des Ereignisses, nicht der der
+letzten Aktualisierung.
+
+An die App-Daten käme man nur über den inoffiziellen Endpunkt, den diese
+Integration bewusst nicht verwendet (siehe
+[Datenschutz und Funktionsgrenzen](#datenschutz-und-funktionsgrenzen)).
+
+Die Kulanzfrist von zwei Stunden nach Fensterende federt das ab: Der Status
+bleibt `out_for_delivery`, auch wenn das gemeldete Fenster schon vorbei ist.
+
 ## Wann wurde zuletzt aktualisiert?
 
 Der Sensor **Statuscode** trägt die Abfragediagnose als Attribute:
@@ -790,6 +823,7 @@ Entwickler-API-Schlüssel.
 | Reauth-Hinweis in der Oberfläche | Der API-Schlüssel wurde abgelehnt. Neuen Schlüssel über den Reauth-Dialog eintragen. |
 | Sensor „API-Anfragen heute" bei 200 | Das Tagesbudget ist erschöpft. Intervall verlängern oder zugestellte Sendungen entfernen. |
 | Paket in Zustellung wird nicht häufiger abgefragt | DHL liefert für diese Sendung keine `estimatedTimeOfDelivery`. Ohne Prognose bleibt sie auf „unterwegs“ – nachprüfbar über das Attribut `imminent_shipments`. |
+| App zeigt andere Zustellzeiten als HA | Zwei verschiedene Datenquellen – siehe [oben](#die-app-zeigt-andere-zeiten-als-home-assistant) |
 | Unvollständige Daten bei DHL-Paket (Deutschland) | Empfänger-PLZ ergänzen – DHL liefert den vollen Datensatz für `parcel-de` nur mit `recipientPostalCode`. |
 
 Für Fehlerberichte bitte die **Diagnosedaten** des Eintrags herunterladen
