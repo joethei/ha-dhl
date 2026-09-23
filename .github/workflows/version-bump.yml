@@ -36,7 +36,7 @@ jobs:
     - name: Get current version
       id: current_version
       run: |
-        CURRENT=$(grep '"version"' manifest.json | cut -d'"' -f4)
+        CURRENT=$(grep '"version"' custom_components/dhl_tracking/manifest.json | cut -d'"' -f4)
         echo "CURRENT_VERSION=$CURRENT" >> $GITHUB_OUTPUT
         echo "Current version: $CURRENT"
         
@@ -49,15 +49,15 @@ jobs:
         
     - name: Update manifest.json
       run: |
-        sed -i "s/\"version\": \".*\"/\"version\": \"${{ steps.new_version.outputs.NEW_VERSION }}\"/" manifest.json
+        sed -i "s/\"version\": \".*\"/\"version\": \"${{ steps.new_version.outputs.NEW_VERSION }}\"/" custom_components/dhl_tracking/manifest.json
         echo "Updated manifest.json:"
-        cat manifest.json | grep version
+        grep version custom_components/dhl_tracking/manifest.json
         
     - name: Commit version bump
       run: |
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
-        git add manifest.json
+        git add custom_components/dhl_tracking/manifest.json
         git commit -m "Bump version to ${{ steps.new_version.outputs.NEW_VERSION }}"
         git push
         

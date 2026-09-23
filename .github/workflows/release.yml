@@ -25,22 +25,18 @@ jobs:
         VERSION_NUM=${GITHUB_REF#refs/tags/v}
         
         # Aktualisiere version in manifest.json
-        sed -i "s/\"version\": \".*\"/\"version\": \"$VERSION_NUM\"/" manifest.json
+        sed -i "s/\"version\": \".*\"/\"version\": \"$VERSION_NUM\"/" custom_components/dhl_tracking/manifest.json
         
         echo "Updated manifest.json version to: $VERSION_NUM"
-        cat manifest.json | grep version
+        grep version custom_components/dhl_tracking/manifest.json
         
     - name: Create ZIP for HACS
       run: |
-        # Erstelle ZIP mit allen Component-Dateien
-        zip -r dhl_tracking.zip \
-          __init__.py \
-          manifest.json \
-          const.py \
-          config_flow.py \
-          dhl_tracker.py \
-          sensor.py \
-          strings.json
+        # HACS erwartet bei zip_release ein Archiv, dessen *Inhalt* direkt in
+        # custom_components/dhl_tracking/ entpackt wird.
+        cd custom_components/dhl_tracking
+        zip -r ../../dhl_tracking.zip . -x '*.pyc' -x '__pycache__/*'
+        cd ../..
         
         # Zeige Inhalt zur Verifikation
         echo "ZIP Contents:"
@@ -55,17 +51,17 @@ jobs:
           
           ### ✨ Features
           - 📦 Verfolge mehrere DHL-Sendungen gleichzeitig
-          - 🔄 Automatische Aktualisierung alle 5 Minuten
+          - 🔄 Adaptives Polling innerhalb des DHL-Tageskontingents
           - 🌍 Unterstützt internationale DHL-Sendungen  
           - 📱 Einfache Konfiguration über die Home Assistant UI
-          - 📊 Detaillierte Sendungsinformationen als Sensor-Attribute
+          - ➕ Sendungen zur Laufzeit hinzufügen/entfernen (Actions + Options Flow)
           
           ### 📋 Installation
           - **HACS**: Füge `https://github.com/pascatl/ha-dhl` als Custom Repository hinzu
           - **Manuell**: Lade `dhl_tracking.zip` herunter und extrahiere in `custom_components/dhl_tracking/`
           
           ### ⚙️ Voraussetzungen
-          - Home Assistant 2023.1.0 oder neuer
+          - Home Assistant 2025.2.0 oder neuer
           - DHL Developer API-Schlüssel
           
           ---

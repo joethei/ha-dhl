@@ -1,0 +1,5 @@
+# Development / CI requirements. The integration itself has no third-party
+# requirements (see custom_components/dhl_tracking/manifest.json) - it uses the
+# aiohttp client session provided by Home Assistant.
+pytest-homeassistant-custom-component==0.13.316
+ruff==0.16.8

@@ -1,2 +1,5 @@
+# Requirements for the standalone CLI helper in scripts/dhl_cli.py only.
+# The Home Assistant integration itself has NO third-party requirements:
+# it uses the shared aiohttp client session provided by Home Assistant.
 requests>=2.25.0
 python-dotenv>=0.19.0
