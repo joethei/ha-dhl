@@ -1,161 +1,108 @@
 """Constants for the DHL Tracking integration."""
 
-DOMAIN = "dhl_tracking"
+from __future__ import annotations
 
-# Configuration keys
-CONF_API_KEY = "api_key"
-CONF_TRACKING_NUMBERS = "tracking_numbers"
+from typing import Final
 
-# Default values
-DEFAULT_NAME = "DHL Tracking"
-DEFAULT_SCAN_INTERVAL = 600  # 10 minutes to respect rate limit
-MIN_SCAN_INTERVAL = 300  # Minimum 5 minutes between requests
+DOMAIN: Final = "dhl_tracking"
 
-# API Configuration
-API_BASE_URL = "https://api-eu.dhl.com/track"
-API_RATE_LIMIT_PER_DAY = 250  # DHL API rate limit
-API_REQUESTS_PER_HOUR_SAFE = 8  # Safe limit: ~192 requests per day
+ATTRIBUTION: Final = "Data provided by Deutsche Post DHL Group"
+MANUFACTURER: Final = "Deutsche Post DHL Group"
 
-# Sensor types - Ein Sensor für jedes API-Attribut
-SENSOR_TYPES = {
-    "status": {
-        "name": "Status",
-        "icon": "mdi:package-variant-closed",
-        "device_class": None,
-        "unit": None,
-        "api_path": ["status", "status"],
-    },
-    "status_code": {
-        "name": "Status Code",
-        "icon": "mdi:barcode",
-        "device_class": None,
-        "unit": None,
-        "api_path": ["status", "statusCode"],
-    },
-    "status_timestamp": {
-        "name": "Status Zeitstempel",
-        "icon": "mdi:clock-outline",
-        "device_class": "timestamp",
-        "unit": None,
-        "api_path": ["status", "timestamp"],
-    },
-    "status_description": {
-        "name": "Status Beschreibung",
-        "icon": "mdi:text",
-        "device_class": None,
-        "unit": None,
-        "api_path": ["status", "description"],
-    },
-    "status_location": {
-        "name": "Status Standort",
-        "icon": "mdi:map-marker",
-        "device_class": None,
-        "unit": None,
-        "api_path": ["status", "location"],
-    },
-    "service": {
-        "name": "Service",
-        "icon": "mdi:truck",
-        "device_class": None,
-        "unit": None,
-        "api_path": ["service"],
-    },
-    "product_name": {
-        "name": "Produkt",
-        "icon": "mdi:package",
-        "device_class": None,
-        "unit": None,
-        "api_path": ["details", "product", "productName"],
-    },
-    "total_pieces": {
-        "name": "Anzahl Stücke",
-        "icon": "mdi:package-variant",
-        "device_class": None,
-        "unit": "Stück",
-        "api_path": ["details", "totalNumberOfPieces"],
-    },
-    "weight_value": {
-        "name": "Gewicht",
-        "icon": "mdi:weight-kilogram",
-        "device_class": "weight",
-        "unit": None,
-        "api_path": ["details", "weight", "value"],
-    },
-    "weight_unit": {
-        "name": "Gewichtseinheit",
-        "icon": "mdi:scale",
-        "device_class": None,
-        "unit": None,
-        "api_path": ["details", "weight", "unitText"],
-    },
-    "origin_country": {
-        "name": "Herkunftsland",
-        "icon": "mdi:flag",
-        "device_class": None,
-        "unit": None,
-        "api_path": ["origin", "address", "countryCode"],
-    },
-    "origin_city": {
-        "name": "Herkunftsort",
-        "icon": "mdi:city",
-        "device_class": None,
-        "unit": None,
-        "api_path": ["origin", "address", "addressLocality"],
-    },
-    "destination_country": {
-        "name": "Zielland",
-        "icon": "mdi:flag-outline",
-        "device_class": None,
-        "unit": None,
-        "api_path": ["destination", "address", "countryCode"],
-    },
-    "destination_city": {
-        "name": "Zielort",
-        "icon": "mdi:city-variant",
-        "device_class": None,
-        "unit": None,
-        "api_path": ["destination", "address", "addressLocality"],
-    },
-    "pickup_date": {
-        "name": "Abholdatum",
-        "icon": "mdi:calendar-start",
-        "device_class": "timestamp",
-        "unit": None,
-        "api_path": ["pickUpDate"],
-    },
-    "estimated_delivery": {
-        "name": "Geplante Zustellung",
-        "icon": "mdi:calendar-check",
-        "device_class": "timestamp",
-        "unit": None,
-        "api_path": ["estimatedTimeOfDelivery"],
-    },
-    "service_url": {
-        "name": "Service URL",
-        "icon": "mdi:web",
-        "device_class": None,
-        "unit": None,
-        "api_path": ["serviceUrl"],
-    },
-    "return_flag": {
-        "name": "Rücksendung",
-        "icon": "mdi:keyboard-return",
-        "device_class": None,
-        "unit": None,
-        "api_path": ["returnFlag"],
-    },
-}
+# --- Config entry -----------------------------------------------------------
+# Config entry data
+CONF_API_KEY: Final = "api_key"
 
-# Attributes
-ATTR_TRACKING_NUMBER = "tracking_number"
-ATTR_PRODUCT = "product"
-ATTR_TOTAL_PIECES = "total_pieces"
-ATTR_WEIGHT = "weight"
-ATTR_ORIGIN = "origin"
-ATTR_DESTINATION = "destination"
-ATTR_SERVICE_URL = "service_url"
-ATTR_STATUS_CODE = "status_code"
-ATTR_ORIGINAL_STATUS = "original_status"
-ATTR_STATUS_TIMESTAMP = "status_timestamp"
-ATTR_STATUS_DESCRIPTION = "status_description"
-ATTR_EVENTS = "events"
+# Config entry options
+CONF_SHIPMENTS: Final = "shipments"
+CONF_SCAN_INTERVAL: Final = "scan_interval"
+CONF_LANGUAGE: Final = "language"
+CONF_POLL_DELIVERED: Final = "poll_delivered"
+
+# Legacy config entry key (<= schema version 1), kept for migration only.
+CONF_TRACKING_NUMBERS: Final = "tracking_numbers"
+
+# Shipment record keys
+CONF_TRACKING_NUMBER: Final = "tracking_number"
+CONF_NAME: Final = "name"
+CONF_RECIPIENT_POSTAL_CODE: Final = "recipient_postal_code"
+CONF_CREATED_AT: Final = "created_at"
+
+# --- Defaults ---------------------------------------------------------------
+DEFAULT_NAME: Final = "DHL Tracking"
+DEFAULT_LANGUAGE: Final = "de"
+SUPPORTED_LANGUAGES: Final = ("de", "en", "fr", "es", "it", "nl", "pl", "cs")
+
+# Poll interval of the coordinator for *active* shipments, in seconds.
+DEFAULT_SCAN_INTERVAL: Final = 1800  # 30 minutes
+MIN_SCAN_INTERVAL: Final = 300  # 5 minutes - hard floor, not user overridable
+MAX_SCAN_INTERVAL: Final = 86400  # 24 hours
+
+# Delivered shipments are polled at most once per this interval (if enabled),
+# so a late "returned to sender" update is still picked up eventually.
+DELIVERED_SCAN_INTERVAL: Final = 86400  # 24 hours
+DEFAULT_POLL_DELIVERED: Final = True
+
+# --- DHL API ----------------------------------------------------------------
+API_BASE_URL: Final = "https://api-eu.dhl.com/track"
+API_TIMEOUT: Final = 30
+
+# Documented limits of the free ("initial") DHL developer plan for the
+# "Shipment Tracking - Unified" API:
+#   "250 calls per day, with a maximum of 1 call every 5 seconds."
+# https://developer.dhl.com/api-reference/shipment-tracking
+API_DAILY_CALL_LIMIT: Final = 250
+API_MIN_SECONDS_BETWEEN_CALLS: Final = 6  # 5s documented + 1s safety margin
+
+# Our own budget stays below the documented limit so that manual refreshes,
+# config-flow validation and re-authentication never exhaust the quota.
+DAILY_REQUEST_BUDGET: Final = 200
+
+# Backoff applied after an HTTP 429 response (seconds).
+RATE_LIMIT_BACKOFF_START: Final = 900  # 15 minutes
+RATE_LIMIT_BACKOFF_MAX: Final = 21600  # 6 hours
+
+# --- Shipment status --------------------------------------------------------
+# `TrackingShipmentStatus.statusCode` enum of the Unified Shipment Tracking API
+# (OpenAPI 1.5.6, see docs/dhl-shipment-tracking-unified-openapi.yaml).
+STATUS_CODE_DELIVERED: Final = "delivered"
+STATUS_CODE_FAILURE: Final = "failure"
+STATUS_CODE_PRE_TRANSIT: Final = "pre-transit"
+STATUS_CODE_TRANSIT: Final = "transit"
+STATUS_CODE_UNKNOWN: Final = "unknown"
+
+STATUS_CODES: Final = (
+    STATUS_CODE_DELIVERED,
+    STATUS_CODE_FAILURE,
+    STATUS_CODE_PRE_TRANSIT,
+    STATUS_CODE_TRANSIT,
+    STATUS_CODE_UNKNOWN,
+)
+
+# --- Services ---------------------------------------------------------------
+SERVICE_ADD_SHIPMENT: Final = "add_shipment"
+SERVICE_REMOVE_SHIPMENT: Final = "remove_shipment"
+SERVICE_REMOVE_DELIVERED_SHIPMENTS: Final = "remove_delivered_shipments"
+
+ATTR_CONFIG_ENTRY_ID: Final = "config_entry_id"
+ATTR_OLDER_THAN_DAYS: Final = "older_than_days"
+
+# Default age for `remove_delivered_shipments`: a safe value, so an accidental
+# call without arguments does not drop shipments delivered minutes ago.
+DEFAULT_OLDER_THAN_DAYS: Final = 7
+
+# --- Events -----------------------------------------------------------------
+EVENT_SHIPMENT_ADDED: Final = "dhl_tracking_shipment_added"
+EVENT_SHIPMENT_REMOVED: Final = "dhl_tracking_shipment_removed"
+EVENT_STATUS_CHANGED: Final = "dhl_tracking_status_changed"
+
+# --- Dispatcher -------------------------------------------------------------
+SIGNAL_SHIPMENTS_CHANGED: Final = "dhl_tracking_shipments_changed_{}"
+
+# --- Validation -------------------------------------------------------------
+# DHL tracking numbers differ wildly between business units (10-digit Express
+# air waybills, 12-20 digit parcel numbers, alphanumeric international IDs).
+# Keep validation permissive but reject obvious junk.
+TRACKING_NUMBER_PATTERN: Final = r"^[A-Za-z0-9][A-Za-z0-9-]{3,38}$"
+POSTAL_CODE_PATTERN: Final = r"^[A-Za-z0-9][A-Za-z0-9 -]{1,11}$"
+MAX_NAME_LENGTH: Final = 100
