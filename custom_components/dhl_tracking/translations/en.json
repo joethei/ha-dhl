@@ -144,6 +144,12 @@
       "status_description": {
         "name": "Status description"
       },
+      "next_steps": {
+        "name": "Next steps"
+      },
+      "customer_reference": {
+        "name": "Customer reference"
+      },
       "status_location": {
         "name": "Status location"
       },
@@ -191,6 +197,9 @@
       },
       "service_url": {
         "name": "Service URL"
+      },
+      "reroute_url": {
+        "name": "Reroute URL"
       },
       "return_flag": {
         "name": "Return shipment",

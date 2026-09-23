@@ -144,6 +144,12 @@
       "status_description": {
         "name": "Statusbeschreibung"
       },
+      "next_steps": {
+        "name": "Nächste Schritte"
+      },
+      "customer_reference": {
+        "name": "Kundenreferenz"
+      },
       "status_location": {
         "name": "Status-Standort"
       },
@@ -191,6 +197,9 @@
       },
       "service_url": {
         "name": "Service-URL"
+      },
+      "reroute_url": {
+        "name": "Umleitungs-URL"
       },
       "return_flag": {
         "name": "Rücksendung",

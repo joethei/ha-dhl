@@ -297,6 +297,8 @@ def test_sensor_description_keys_are_stable() -> None:
         "status_code",
         "status_timestamp",
         "status_description",
+        "next_steps",
+        "customer_reference",
         "status_location",
         "service",
         "product_name",
@@ -313,6 +315,7 @@ def test_sensor_description_keys_are_stable() -> None:
         "estimated_delivery_date",
         "delivery_remark",
         "service_url",
+        "reroute_url",
         "return_flag",
     ]
 

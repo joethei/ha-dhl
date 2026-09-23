@@ -149,6 +149,32 @@ SERVICE_PRIORITY: Final = "priority"
 SERVICE_RETURN: Final = "return"
 SERVICE_SIGNATURE: Final = "signature"
 
+# --- References -------------------------------------------------------------
+# `details.references[]` carries the numbers a shipment was booked under. The
+# order below decides which one the "customer reference" sensor shows.
+REFERENCE_TYPE_PRIORITY: Final = (
+    "customer-order-number",
+    "customer-reference",
+    "ecommerce-number",
+    "customer-confirmation-number",
+    "local-tracking-number",
+    "domestic-consignment-id",
+    "shipment-id",
+    "reference",
+)
+
+# Never published as an entity state or attribute, whatever `@scope` says.
+SENSITIVE_REFERENCE_TYPES: Final = frozenset(
+    {
+        "payer-account-number",
+        "receiver-account-number",
+        "shipper-account-number",
+    }
+)
+
+# `Reference.@scope` values DHL itself marks as protected.
+SENSITIVE_REFERENCE_SCOPES: Final = frozenset({"secret", "sensitive"})
+
 # --- Services ---------------------------------------------------------------
 SERVICE_ADD_SHIPMENT: Final = "add_shipment"
 SERVICE_REMOVE_SHIPMENT: Final = "remove_shipment"

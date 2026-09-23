@@ -3,6 +3,33 @@
 Alle nennenswerten Änderungen an dieser Integration.
 Das Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [0.5.0] – 2026-09-23
+
+### Hinzugefügt
+
+- **Kundenreferenz.** Neuer Sensor `Kundenreferenz` aus `details.references[]`,
+  bevorzugt die `customer-order-number` – damit lässt sich eine Sendung einer
+  Shop-Bestellung zuordnen. Die vollständige Liste steht im Attribut
+  `references`, zusätzlich als `customer_reference` am Sensor **Statuscode**
+  und in der `shipments`-Liste der Übersicht.
+  Kontonummern (`payer-`/`shipper-`/`receiver-account-number`) und alles, was
+  DHL über `@scope` als `secret` oder `sensitive` markiert, wird nicht
+  veröffentlicht.
+- **Nächste Schritte.** Neuer Sensor aus `status.nextSteps`.
+- **Umleitungs-URL.** Neuer Diagnosesensor aus `rerouteUrl`, plus die
+  Attribute `reroute_url` und `reroute_available` am Sensor **Statuscode**.
+  DHL liefert den Link nur, solange Umleiten für den aktuellen Status möglich
+  ist – seine Anwesenheit ist damit selbst ein Signal.
+- **Attribute `status_detailed` und `status_remark`** aus `status.statusDetailed`
+  und `status.remark`, an den Sensoren **Statusbeschreibung** und **Statuscode**.
+
+### Behoben
+
+- Freitext-Sensoren konnten die Home-Assistant-Grenze von 255 Zeichen für
+  einen State reißen; Home Assistant lehnt den Wert dann ab und die Entität
+  bleibt hängen. Lange Werte werden jetzt gekürzt, der vollständige Text steht
+  im Attribut `full_value`.
+
 ## [0.4.0] – 2026-09-23
 
 ### Hinzugefügt

@@ -10,7 +10,7 @@ Assistant noch eine Neueingabe des API-Schlüssels ist nötig.
 
 ## Funktionsumfang
 
-- 📦 Ein Gerät pro Sendung mit 21 Sensoren und einer Event-Entität, gruppiert in der Home-Assistant-Oberfläche
+- 📦 Ein Gerät pro Sendung mit 24 Sensoren und einer Event-Entität, gruppiert in der Home-Assistant-Oberfläche
 - 🏷️ Zustellmerkmale strukturiert: `signature_required`, `id_required`, `services`, Nachnahmebetrag
 - 🚚 Eigener Status `out_for_delivery`, abgeleitet aus dem Zustellfenster
 - ➕ `dhl_tracking.add_shipment` / `dhl_tracking.remove_shipment` /
@@ -252,7 +252,7 @@ actions:
 
 ## Entities
 
-Pro Sendung wird ein Gerät mit 21 Sensoren und einer Event-Entität angelegt. Die Unique IDs haben das
+Pro Sendung wird ein Gerät mit 24 Sensoren und einer Event-Entität angelegt. Die Unique IDs haben das
 Format `dhl_tracking_<sendungsnummer>_<sensor>` und sind gegenüber früheren
 Versionen unverändert – vorhandene Entity-IDs bleiben also erhalten.
 
@@ -262,6 +262,8 @@ Versionen unverändert – vorhandene Entity-IDs bleiben also erhalten.
 | Statuscode | `status.statusCode` (Enum) | Diagnose |
 | Status-Zeitstempel | `status.timestamp` | – |
 | Statusbeschreibung | `status.description` | – |
+| Nächste Schritte | `status.nextSteps` | – |
+| Kundenreferenz | `details.references[]` (bevorzugt `customer-order-number`) | – |
 | Status-Standort | `status.location` (Ort, Land) | – |
 | Service | `service` | Diagnose |
 | Produkt | `details.product.productName` | – |
@@ -278,6 +280,7 @@ Versionen unverändert – vorhandene Entity-IDs bleiben also erhalten.
 | Zustelltag | Zustelldatum als reines Datum | – |
 | Zustellprognose | `estimatedTimeOfDeliveryRemark` (Klartext von DHL) | – |
 | Service-URL | `serviceUrl` | Diagnose |
+| Umleitungs-URL | `rerouteUrl` | Diagnose |
 | Rücksendung | `returnFlag` (Enum `yes`/`no`) | Diagnose |
 
 Zusätzlich existiert pro Konfigurationseintrag ein Dienst-Gerät „DHL Tracking"
@@ -370,6 +373,68 @@ ausschließlich im Freitext `details.product.productName`
 (`"DHL PAKET, Empfängerunterschrift"`). Das strukturierte Feld hat immer
 Vorrang; der Text wird nur für das ausgewertet, was es nicht abdecken kann.
 Nicht erkannte Fragmente landen unverändert in `services_raw`.
+
+### Kundenreferenz und Bestellnummer
+
+`details.references[]` trägt die Nummern, unter denen eine Sendung gebucht
+wurde. Der Sensor **Kundenreferenz** zeigt die aussagekräftigste davon, in
+dieser Reihenfolge: `customer-order-number`, `customer-reference`,
+`ecommerce-number`, `customer-confirmation-number`, `local-tracking-number`,
+`domestic-consignment-id`, `shipment-id`, `reference`.
+
+```yaml
+state: "ORDER-4711"
+references:
+  - type: "customer-order-number"
+    number: "ORDER-4711"
+  - type: "housebill"
+    number: "HB-1"
+```
+
+Damit lässt sich eine Sendung einer Shop-Bestellung zuordnen, ohne über den
+Anzeigenamen zu raten:
+
+```yaml
+{{ state_attr('sensor.dhl_tracking_offene_sendungen', 'shipments')
+   | selectattr('customer_reference', 'eq', 'ORDER-4711') | first }}
+```
+
+**Nicht veröffentlicht werden:** die Kontonummer-Typen
+`payer-account-number`, `shipper-account-number`, `receiver-account-number`
+sowie jeder Eintrag, den DHL über `@scope` als `secret` oder `sensitive`
+markiert. Die identifizieren ein Abrechnungskonto, nicht das Paket.
+
+### Sendung umleiten
+
+Der Diagnosesensor **Umleitungs-URL** trägt `rerouteUrl`. DHL liefert das Feld
+laut Spec nur, *„if available for the current status of the shipment"* – seine
+Anwesenheit ist damit selbst ein Signal. Am Sensor **Statuscode** steht
+zusätzlich `reroute_available` als Bool.
+
+```yaml
+type: markdown
+content: >-
+  {% if state_attr('sensor.paket_statuscode', 'reroute_available') %}
+  [Sendung umleiten]({{ state_attr('sensor.paket_statuscode', 'reroute_url') }})
+  {% endif %}
+```
+
+### Weitere Statustexte
+
+DHL liefert bis zu vier Textvarianten zum selben Status. **Status** und
+**Statusbeschreibung** sind eigene Sensoren, **Nächste Schritte** ebenfalls;
+die beiden restlichen hängen als Attribute an **Statusbeschreibung** und
+**Statuscode**:
+
+| Attribut | API-Feld |
+|---|---|
+| `status_detailed` | `status.statusDetailed` |
+| `status_remark` | `status.remark` |
+| `next_steps` | `status.nextSteps` |
+
+> Home Assistant lehnt States über 255 Zeichen ab. Längere Texte werden
+> gekürzt (erkennbar am `…`), der vollständige Text steht dann im Attribut
+> `full_value`.
 
 ### Status „In Zustellung"
 

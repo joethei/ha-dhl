@@ -21,7 +21,11 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.const import EntityCategory, UnitOfMass
+from homeassistant.const import (
+    MAX_LENGTH_STATE_STATE,
+    EntityCategory,
+    UnitOfMass,
+)
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
@@ -33,6 +37,9 @@ from .const import (
     DEFAULT_NAME,
     DOMAIN,
     MANUFACTURER,
+    REFERENCE_TYPE_PRIORITY,
+    SENSITIVE_REFERENCE_SCOPES,
+    SENSITIVE_REFERENCE_TYPES,
     STATUS_CODE_DELIVERED,
     STATUS_CODES,
 )
@@ -300,16 +307,89 @@ def _status_attributes(data: dict[str, Any]) -> dict[str, Any]:
     return {"events": history} if history else {}
 
 
+def _truncate(value: Any) -> Any:
+    """Keep a sensor state within Home Assistant's 255 character limit.
+
+    DHL's free text fields have no documented length limit, and Home Assistant
+    refuses a longer state outright, which would leave the entity stuck. The
+    full text stays available as the `full_value` attribute.
+    """
+    if isinstance(value, str) and len(value) > MAX_LENGTH_STATE_STATE:
+        return value[: MAX_LENGTH_STATE_STATE - 1] + "\u2026"
+    return value
+
+
+def _references(data: dict[str, Any] | None) -> list[dict[str, str]]:
+    """Return the publishable references of a shipment.
+
+    Entries DHL marks as `secret` or `sensitive` via `@scope`, and the account
+    number types, are dropped - they identify a billing account rather than
+    the parcel.
+    """
+    details = (data or {}).get("details")
+    details = details if isinstance(details, dict) else {}
+    references = details.get("references")
+    if not isinstance(references, list):
+        return []
+
+    result: list[dict[str, str]] = []
+    for entry in references:
+        if not isinstance(entry, dict):
+            continue
+        ref_type = entry.get("type")
+        number = entry.get("number")
+        if not ref_type or not number:
+            continue
+        if ref_type in SENSITIVE_REFERENCE_TYPES:
+            continue
+        if entry.get("@scope") in SENSITIVE_REFERENCE_SCOPES:
+            continue
+        result.append({"type": str(ref_type), "number": str(number)})
+    return result
+
+
+def _primary_reference(data: dict[str, Any] | None) -> str | None:
+    """Return the reference most likely to match a webshop order."""
+    references = _references(data)
+    for wanted in REFERENCE_TYPE_PRIORITY:
+        for entry in references:
+            if entry["type"] == wanted:
+                return entry["number"]
+    return references[0]["number"] if references else None
+
+
+def _status_text_attributes(data: dict[str, Any]) -> dict[str, Any]:
+    """Return the status texts that do not get their own sensor."""
+    status = data.get("status")
+    status = status if isinstance(status, dict) else {}
+    attrs = {
+        "status_detailed": status.get("statusDetailed"),
+        "status_remark": status.get("remark"),
+        "next_steps": status.get("nextSteps"),
+    }
+    return {key: value for key, value in attrs.items() if value is not None}
+
+
 def _summary_attributes(data: dict[str, Any]) -> dict[str, Any]:
     """Everything a dashboard needs next to the status code."""
-    return {
+    reroute_url = data.get("rerouteUrl")
+    attrs = {
         **extract_features(data).as_attributes(),
         **_handover_attributes(data),
+        **_status_text_attributes(data),
         # The unmodified API value, since `status_code` may report the derived
         # `out_for_delivery`.
         "status_code_api": _nested(data, "status", "statusCode"),
         "description": _nested(data, "status", "description"),
+        "references": _references(data),
+        "customer_reference": _primary_reference(data),
+        # DHL only sends the reroute link while rerouting is actually possible
+        # for the current status, so its presence is a signal in itself.
+        "reroute_available": reroute_url is not None,
     }
+    if reroute_url is not None:
+        attrs["reroute_url"] = reroute_url
+    return attrs
 
 
 SENSOR_DESCRIPTIONS: tuple[DhlSensorEntityDescription, ...] = (
@@ -340,6 +420,20 @@ SENSOR_DESCRIPTIONS: tuple[DhlSensorEntityDescription, ...] = (
         translation_key="status_description",
         icon="mdi:text",
         value_fn=lambda data: _nested(data, "status", "description"),
+        extra_attrs_fn=_status_text_attributes,
+    ),
+    DhlSensorEntityDescription(
+        key="next_steps",
+        translation_key="next_steps",
+        icon="mdi:arrow-right-circle-outline",
+        value_fn=lambda data: _nested(data, "status", "nextSteps"),
+    ),
+    DhlSensorEntityDescription(
+        key="customer_reference",
+        translation_key="customer_reference",
+        icon="mdi:receipt-text-outline",
+        value_fn=_primary_reference,
+        extra_attrs_fn=lambda data: {"references": _references(data)},
     ),
     DhlSensorEntityDescription(
         key="status_location",
@@ -461,6 +555,13 @@ SENSOR_DESCRIPTIONS: tuple[DhlSensorEntityDescription, ...] = (
         value_fn=lambda data: data.get("serviceUrl"),
     ),
     DhlSensorEntityDescription(
+        key="reroute_url",
+        translation_key="reroute_url",
+        icon="mdi:directions-fork",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda data: data.get("rerouteUrl"),
+    ),
+    DhlSensorEntityDescription(
         key="return_flag",
         translation_key="return_flag",
         icon="mdi:keyboard-return",
@@ -551,13 +652,17 @@ class DhlShipmentSensor(CoordinatorEntity[DhlUpdateCoordinator], SensorEntity):
             and state.available
         )
 
-    @property
-    def native_value(self) -> Any:
-        """Return the current value."""
+    def _raw_value(self) -> Any:
+        """Return the untruncated value from the API payload."""
         state = self._state
         if state is None or state.data is None:
             return None
         return self.entity_description.value_fn(state.data)
+
+    @property
+    def native_value(self) -> Any:
+        """Return the current value, capped to what Home Assistant accepts."""
+        return _truncate(self._raw_value())
 
     @property
     def native_unit_of_measurement(self) -> str | None:
@@ -582,6 +687,10 @@ class DhlShipmentSensor(CoordinatorEntity[DhlUpdateCoordinator], SensorEntity):
             and (extra_fn := self.entity_description.extra_attrs_fn) is not None
         ):
             attrs.update(extra_fn(state.data))
+
+        raw = self._raw_value()
+        if isinstance(raw, str) and len(raw) > MAX_LENGTH_STATE_STATE:
+            attrs["full_value"] = raw
         return attrs
 
 
@@ -722,6 +831,8 @@ class DhlOpenShipmentsSensor(DhlEntrySensor):
                     "signature_required": features.signature_required,
                     "id_required": features.id_required,
                     "services": list(features.services),
+                    "customer_reference": _primary_reference(data),
+                    "next_steps": _nested(data, "status", "nextSteps"),
                 }
             )
         return {"shipments": shipments}

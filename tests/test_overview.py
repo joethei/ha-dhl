@@ -58,6 +58,8 @@ async def test_open_shipments_counts_undelivered(
         "signature_required",
         "id_required",
         "services",
+        "customer_reference",
+        "next_steps",
     }
 
 
