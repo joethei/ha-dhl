@@ -370,3 +370,21 @@ async def async_setup_domain(hass: HomeAssistant) -> bool:
     from homeassistant.setup import async_setup_component
 
     return await async_setup_component(hass, DOMAIN, {})
+
+
+async def test_removing_the_device_removes_the_shipment(
+    hass: HomeAssistant, mock_api: AsyncMock, mock_config_entry: MockConfigEntry
+) -> None:
+    """Deleting a shipment device in the UI untracks the shipment."""
+    from custom_components.dhl_tracking import async_remove_config_entry_device
+
+    await setup_integration(hass, mock_config_entry)
+    device_registry = dr.async_get(hass)
+    device = device_registry.async_get_device(identifiers={(DOMAIN, TRACKING_NUMBER)})
+    assert device is not None
+
+    assert await async_remove_config_entry_device(hass, mock_config_entry, device)
+    await hass.async_block_till_done()
+
+    assert tracked(mock_config_entry) == []
+    assert hass.states.get("sensor.testpaket_status") is None

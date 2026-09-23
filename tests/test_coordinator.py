@@ -435,3 +435,35 @@ async def test_daily_requests_never_exceed_the_budget(
         assert coordinator.estimated_daily_requests() <= DAILY_REQUEST_BUDGET + EPSILON
         assert await hass.config_entries.async_unload(entry.entry_id)
         await hass.async_block_till_done()
+
+
+async def test_requests_are_spaced_apart(
+    hass: HomeAssistant, mock_api: AsyncMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Consecutive API calls honour the documented 1-call-per-5-seconds limit."""
+    entry = build_config_entry(
+        shipments=[
+            {"tracking_number": TRACKING_NUMBER},
+            {"tracking_number": OTHER_TRACKING_NUMBER},
+        ]
+    )
+    await setup_integration(hass, entry)
+    coordinator = entry.runtime_data.coordinator
+
+    slept: list[float] = []
+
+    async def _fake_sleep(delay: float) -> None:
+        slept.append(delay)
+
+    monkeypatch.setattr(
+        "custom_components.dhl_tracking.coordinator.asyncio.sleep", _fake_sleep
+    )
+    coordinator.min_seconds_between_calls = 6
+    for state in coordinator.states.values():
+        state.last_polled = None
+    await coordinator.async_refresh()
+
+    # Both calls wait: the first for the gap to the previous cycle, the second
+    # for the gap to the first one.
+    assert len(slept) == 2
+    assert all(0 < delay <= 6 for delay in slept)
