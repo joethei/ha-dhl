@@ -174,8 +174,17 @@
       "pickup_date": {
         "name": "Pickup date"
       },
+      "pickup_day": {
+        "name": "Pickup day"
+      },
       "estimated_delivery": {
         "name": "Estimated delivery"
+      },
+      "estimated_delivery_date": {
+        "name": "Delivery day"
+      },
+      "delivery_remark": {
+        "name": "Delivery forecast"
       },
       "service_url": {
         "name": "Service URL"

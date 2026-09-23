@@ -29,7 +29,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable, Coroutine, Iterable
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from enum import StrEnum
 import logging
 from typing import Any
@@ -142,7 +142,7 @@ class ShipmentState:
         """Return the delivery timestamp, when the shipment was delivered."""
         if not self.delivered or not self.data:
             return None
-        return parse_api_datetime((self.data.get("status") or {}).get("timestamp"))
+        return parse_api_instant((self.data.get("status") or {}).get("timestamp"))
 
     def priority(self, now: datetime) -> ShipmentPriority:
         """Return how urgently this shipment needs fresh data."""
@@ -168,8 +168,8 @@ class ShipmentState:
         grace = timedelta(hours=DELIVERY_OVERDUE_GRACE_HOURS)
 
         frame = self.data.get("estimatedDeliveryTimeFrame") or {}
-        start = parse_api_datetime(frame.get("estimatedFrom"))
-        end = parse_api_datetime(frame.get("estimatedThrough"))
+        start = parse_api_instant(frame.get("estimatedFrom"))
+        end = parse_api_instant(frame.get("estimatedThrough"))
         # Inside the delivery window, close enough to its start, or overdue.
         if (
             end is not None
@@ -178,7 +178,7 @@ class ShipmentState:
         ):
             return True
 
-        eta = parse_api_datetime(self.data.get("estimatedTimeOfDelivery"))
+        eta = parse_api_instant(self.data.get("estimatedTimeOfDelivery"))
         return eta is not None and eta - lead <= now <= eta + grace
 
 
@@ -199,22 +199,49 @@ ShipmentListener = Callable[[ShipmentDiff], Coroutine[Any, Any, None]]
 
 
 def parse_api_datetime(value: Any) -> datetime | None:
-    """Parse a DHL API date-time value into an aware ``datetime``.
+    """Parse a DHL API date-time into an aware ``datetime``.
 
     The API documents ``format: date-time`` but some business units omit the
     UTC offset. Naive values are interpreted in the Home Assistant time zone.
+
+    A value that carries no time of day at all returns ``None`` - see
+    :func:`parse_api_date` for those. Inventing a time the API never sent is
+    what made "estimated delivery" render as "00:00".
     """
     if not isinstance(value, str) or not value:
         return None
     parsed = dt_util.parse_datetime(value)
     if parsed is None:
-        parsed_date = dt_util.parse_date(value)
-        if parsed_date is None:
-            return None
-        parsed = datetime.combine(parsed_date, datetime.min.time())
+        return None
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=dt_util.get_default_time_zone())
     return parsed
+
+
+def parse_api_date(value: Any) -> date | None:
+    """Return the calendar day of a DHL API date or date-time value."""
+    if (parsed := parse_api_datetime(value)) is not None:
+        return parsed.date()
+    if not isinstance(value, str) or not value:
+        return None
+    return dt_util.parse_date(value)
+
+
+def parse_api_instant(value: Any) -> datetime | None:
+    """Parse a value for *scheduling* purposes.
+
+    Unlike :func:`parse_api_datetime` this accepts a date without a time and
+    anchors it at local midnight, because "some time on that day" is precise
+    enough to decide when to poll next. It must not be used for anything the
+    user sees.
+    """
+    if (parsed := parse_api_datetime(value)) is not None:
+        return parsed
+    if (parsed_date := parse_api_date(value)) is None:
+        return None
+    return datetime.combine(
+        parsed_date, datetime.min.time(), tzinfo=dt_util.get_default_time_zone()
+    )
 
 
 class RequestBudget:

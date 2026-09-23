@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import date, datetime
 import logging
 from typing import Any
 
@@ -40,6 +41,7 @@ from .coordinator import (
     ShipmentDiff,
     ShipmentPriority,
     ShipmentState,
+    parse_api_date,
     parse_api_datetime,
 )
 
@@ -118,6 +120,54 @@ def _weight_unit(data: dict[str, Any] | None) -> str | None:
     if not isinstance(raw, str):
         return None
     return WEIGHT_UNITS.get(raw.strip().lower())
+
+
+def _delivery_time_frame(data: dict[str, Any] | None) -> dict[str, Any]:
+    """Return the ``estimatedDeliveryTimeFrame`` object, or an empty dict."""
+    frame = (data or {}).get("estimatedDeliveryTimeFrame")
+    return frame if isinstance(frame, dict) else {}
+
+
+def _has_time_of_day(value: datetime) -> bool:
+    """Return whether a timestamp carries a meaningful time.
+
+    DHL sends the estimated delivery as ``format: date-time`` even when it
+    only knows the day, in which case the time reads ``00:00:00``. Parcels are
+    not delivered at midnight, so that is treated as "day only" rather than
+    shown as a delivery time.
+    """
+    return (value.hour, value.minute, value.second) != (0, 0, 0)
+
+
+def _estimated_delivery_time(data: dict[str, Any]) -> datetime | None:
+    """Return a real point in time for the delivery, if DHL supplied one."""
+    frame = _delivery_time_frame(data)
+    if (start := parse_api_datetime(frame.get("estimatedFrom"))) is not None:
+        return start
+    eta = parse_api_datetime(data.get("estimatedTimeOfDelivery"))
+    if eta is not None and _has_time_of_day(eta):
+        return eta
+    return None
+
+
+def _estimated_delivery_day(data: dict[str, Any]) -> date | None:
+    """Return the calendar day DHL expects to deliver on."""
+    frame = _delivery_time_frame(data)
+    return parse_api_date(frame.get("estimatedFrom")) or parse_api_date(
+        data.get("estimatedTimeOfDelivery")
+    )
+
+
+def _delivery_attributes(data: dict[str, Any]) -> dict[str, Any]:
+    """Return the full delivery forecast as attributes."""
+    frame = _delivery_time_frame(data)
+    attrs = {
+        "time_frame_from": frame.get("estimatedFrom"),
+        "time_frame_through": frame.get("estimatedThrough"),
+        "remark": data.get("estimatedTimeOfDeliveryRemark"),
+        "raw_estimated_time_of_delivery": data.get("estimatedTimeOfDelivery"),
+    }
+    return {key: value for key, value in attrs.items() if value is not None}
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -255,13 +305,40 @@ SENSOR_DESCRIPTIONS: tuple[DhlSensorEntityDescription, ...] = (
         key="pickup_date",
         translation_key="pickup_date",
         device_class=SensorDeviceClass.TIMESTAMP,
-        value_fn=lambda data: parse_api_datetime(data.get("pickUpDate")),
+        value_fn=lambda data: (
+            pickup
+            if (pickup := parse_api_datetime(data.get("pickUpDate"))) is not None
+            and _has_time_of_day(pickup)
+            else None
+        ),
+    ),
+    DhlSensorEntityDescription(
+        key="pickup_day",
+        translation_key="pickup_day",
+        icon="mdi:calendar-start",
+        device_class=SensorDeviceClass.DATE,
+        value_fn=lambda data: parse_api_date(data.get("pickUpDate")),
     ),
     DhlSensorEntityDescription(
         key="estimated_delivery",
         translation_key="estimated_delivery",
         device_class=SensorDeviceClass.TIMESTAMP,
-        value_fn=lambda data: parse_api_datetime(data.get("estimatedTimeOfDelivery")),
+        value_fn=_estimated_delivery_time,
+        extra_attrs_fn=_delivery_attributes,
+    ),
+    DhlSensorEntityDescription(
+        key="estimated_delivery_date",
+        translation_key="estimated_delivery_date",
+        icon="mdi:calendar-check",
+        device_class=SensorDeviceClass.DATE,
+        value_fn=_estimated_delivery_day,
+        extra_attrs_fn=_delivery_attributes,
+    ),
+    DhlSensorEntityDescription(
+        key="delivery_remark",
+        translation_key="delivery_remark",
+        icon="mdi:calendar-text",
+        value_fn=lambda data: data.get("estimatedTimeOfDeliveryRemark"),
     ),
     DhlSensorEntityDescription(
         key="service_url",

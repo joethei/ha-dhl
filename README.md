@@ -10,7 +10,7 @@ Assistant noch eine Neueingabe des API-Schlüssels ist nötig.
 
 ## Funktionsumfang
 
-- 📦 Ein Gerät pro Sendung mit 18 Sensoren, gruppiert in der Home-Assistant-Oberfläche
+- 📦 Ein Gerät pro Sendung mit 21 Sensoren, gruppiert in der Home-Assistant-Oberfläche
 - ➕ `dhl_tracking.add_shipment` / `dhl_tracking.remove_shipment` /
   `dhl_tracking.remove_delivered_shipments` als vollwertige Aktionen
 - 🖱️ Options Flow unter *Einstellungen → Geräte & Dienste → DHL Tracking → Konfigurieren*
@@ -245,7 +245,7 @@ actions:
 
 ## Entities
 
-Pro Sendung wird ein Gerät mit 18 Sensoren angelegt. Die Unique IDs haben das
+Pro Sendung wird ein Gerät mit 21 Sensoren angelegt. Die Unique IDs haben das
 Format `dhl_tracking_<sendungsnummer>_<sensor>` und sind gegenüber früheren
 Versionen unverändert – vorhandene Entity-IDs bleiben also erhalten.
 
@@ -265,8 +265,11 @@ Versionen unverändert – vorhandene Entity-IDs bleiben also erhalten.
 | Herkunftsort | `origin.address.addressLocality` | – |
 | Zielland | `destination.address.countryCode` | Diagnose |
 | Zielort | `destination.address.addressLocality` | – |
-| Abholdatum | `pickUpDate` | – |
-| Geplante Zustellung | `estimatedTimeOfDelivery` | – |
+| Abholdatum | `pickUpDate`, nur mit echter Uhrzeit | – |
+| Abholtag | `pickUpDate` als Datum | – |
+| Geplante Zustellung | `estimatedDeliveryTimeFrame.estimatedFrom`, sonst `estimatedTimeOfDelivery` mit echter Uhrzeit | – |
+| Zustelltag | Zustelldatum als reines Datum | – |
+| Zustellprognose | `estimatedTimeOfDeliveryRemark` (Klartext von DHL) | – |
 | Service-URL | `serviceUrl` | Diagnose |
 | Rücksendung | `returnFlag` (Enum `yes`/`no`) | Diagnose |
 
@@ -275,6 +278,26 @@ mit dem Diagnosesensor **API-Anfragen heute**. Dessen Attribute zeigen das
 Tagesbudget, den geschätzten Tagesverbrauch, die Anzahl Sendungen je Priorität
 (`imminent_shipments`, `transit_shipments`, `pre_transit_shipments`) und das
 daraus resultierende Intervall je Priorität (`interval_minutes_imminent` usw.).
+
+### Zustellprognose
+
+DHL liefert die Zustellprognose je nach Geschäftsbereich unterschiedlich genau:
+mal als exakten Zeitpunkt, mal als Zeitfenster, meistens aber nur als
+Kalendertag – dann steht in `estimatedTimeOfDelivery` ein `00:00:00`, das
+*keine* Uhrzeitangabe ist. Deshalb sind es drei Sensoren:
+
+| Sensor | Zeigt | Wenn DHL nur den Tag kennt |
+|---|---|---|
+| **Geplante Zustellung** (Zeitstempel) | Beginn des Zustellfensters, sonst echte Uhrzeit | `unknown` – es wird keine Uhrzeit erfunden |
+| **Zustelltag** (Datum) | „23. September 2026" | gefüllt |
+| **Zustellprognose** (Text) | DHLs eigener Klartext | gefüllt, sofern DHL ihn liefert |
+
+Beide Zustell-Sensoren tragen die Rohdaten als Attribute:
+`time_frame_from`, `time_frame_through`, `remark` und
+`raw_estimated_time_of_delivery`.
+
+Für **Abholdatum** gilt dasselbe: Der Zeitstempel bleibt leer, wenn DHL keine
+Uhrzeit liefert; **Abholtag** zeigt das Datum.
 
 Der Sensor **Status** trägt zusätzlich das Attribut `events` mit den letzten
 zehn Sendungsereignissen (Zeitstempel, Status, Beschreibung, Ort auf
@@ -444,6 +467,11 @@ Bestehende Einträge werden automatisch von Schema-Version 1 auf 2 migriert:
   auf `"yes"` umgestellt werden.
 - **Zeitstempel-Sensoren** liefern jetzt echte, zeitzonenbehaftete
   Datumswerte statt roher Zeichenketten.
+- **Geplante Zustellung** und **Abholdatum** zeigen keine erfundene Uhrzeit
+  mehr. Liefert DHL nur einen Kalendertag, bleiben diese Zeitstempel leer und
+  die neuen Sensoren **Zustelltag** / **Abholtag** tragen das Datum.
+  Automationen, die bisher auf `00:00` gerechnet haben, sollten auf den
+  jeweiligen Datums-Sensor umgestellt werden.
 - Die Debug-Attribute `api_path` und `raw_value` entfallen; stattdessen gibt es
   vollständige, redigierte **Diagnosedaten** pro Konfigurationseintrag.
 - Das Standardintervall ist 30 Minuten statt 10 Minuten (siehe API-Limits).

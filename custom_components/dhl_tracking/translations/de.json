@@ -174,8 +174,17 @@
       "pickup_date": {
         "name": "Abholdatum"
       },
+      "pickup_day": {
+        "name": "Abholtag"
+      },
       "estimated_delivery": {
         "name": "Geplante Zustellung"
+      },
+      "estimated_delivery_date": {
+        "name": "Zustelltag"
+      },
+      "delivery_remark": {
+        "name": "Zustellprognose"
       },
       "service_url": {
         "name": "Service-URL"

@@ -307,7 +307,126 @@ def test_sensor_description_keys_are_stable() -> None:
         "destination_country",
         "destination_city",
         "pickup_date",
+        "pickup_day",
         "estimated_delivery",
+        "estimated_delivery_date",
+        "delivery_remark",
         "service_url",
         "return_flag",
     ]
+
+
+# --- Delivery forecast rendering ---------------------------------------------
+
+
+async def test_date_only_forecast_does_not_invent_a_time(
+    hass: HomeAssistant, mock_api: AsyncMock, shipment_responses: dict
+) -> None:
+    """A day without a time must not render as "at 00:00"."""
+    shipment_responses[TRACKING_NUMBER] = shipment_payload(
+        TRACKING_NUMBER, estimated_delivery="2026-09-23"
+    )
+    entry = build_config_entry(shipments=[{"tracking_number": TRACKING_NUMBER}])
+    await setup_integration(hass, entry)
+
+    prefix = f"sensor.dhl_{TRACKING_NUMBER.lower()}"
+    # The timestamp sensor stays empty instead of claiming midnight.
+    assert hass.states.get(f"{prefix}_estimated_delivery").state == "unknown"
+    # The day is reported by its own date sensor.
+    day = hass.states.get(f"{prefix}_delivery_day")
+    assert day.state == "2026-09-23"
+    assert day.attributes[ATTR_DEVICE_CLASS] == SensorDeviceClass.DATE
+
+
+async def test_midnight_forecast_is_treated_as_date_only(
+    hass: HomeAssistant, mock_api: AsyncMock, shipment_responses: dict
+) -> None:
+    """DHL sends 00:00:00 when it only knows the day - do not show it."""
+    shipment_responses[TRACKING_NUMBER] = shipment_payload(
+        TRACKING_NUMBER, estimated_delivery="2026-09-23T00:00:00+02:00"
+    )
+    entry = build_config_entry(shipments=[{"tracking_number": TRACKING_NUMBER}])
+    await setup_integration(hass, entry)
+
+    prefix = f"sensor.dhl_{TRACKING_NUMBER.lower()}"
+    assert hass.states.get(f"{prefix}_estimated_delivery").state == "unknown"
+    assert hass.states.get(f"{prefix}_delivery_day").state == "2026-09-23"
+
+
+async def test_real_delivery_time_is_kept(
+    hass: HomeAssistant, mock_api: AsyncMock, shipment_responses: dict
+) -> None:
+    """When DHL does supply a time, the timestamp sensor still shows it."""
+    shipment_responses[TRACKING_NUMBER] = shipment_payload(
+        TRACKING_NUMBER, estimated_delivery="2026-09-23T14:30:00+02:00"
+    )
+    entry = build_config_entry(shipments=[{"tracking_number": TRACKING_NUMBER}])
+    await setup_integration(hass, entry)
+
+    prefix = f"sensor.dhl_{TRACKING_NUMBER.lower()}"
+    state = hass.states.get(f"{prefix}_estimated_delivery")
+    assert dt_util.parse_datetime(state.state) == dt_util.parse_datetime(
+        "2026-09-23T14:30:00+02:00"
+    )
+    assert hass.states.get(f"{prefix}_delivery_day").state == "2026-09-23"
+
+
+async def test_delivery_time_frame_wins_over_the_bare_date(
+    hass: HomeAssistant, mock_api: AsyncMock, shipment_responses: dict
+) -> None:
+    """The delivery window is the most precise forecast DHL offers."""
+    shipment_responses[TRACKING_NUMBER] = shipment_payload(
+        TRACKING_NUMBER,
+        estimated_delivery="2026-09-23T00:00:00+02:00",
+        delivery_time_frame={
+            "estimatedFrom": "2026-09-23T10:00:00+02:00",
+            "estimatedThrough": "2026-09-23T14:00:00+02:00",
+        },
+    )
+    entry = build_config_entry(shipments=[{"tracking_number": TRACKING_NUMBER}])
+    await setup_integration(hass, entry)
+
+    prefix = f"sensor.dhl_{TRACKING_NUMBER.lower()}"
+    state = hass.states.get(f"{prefix}_estimated_delivery")
+    assert dt_util.parse_datetime(state.state) == dt_util.parse_datetime(
+        "2026-09-23T10:00:00+02:00"
+    )
+    assert state.attributes["time_frame_from"] == "2026-09-23T10:00:00+02:00"
+    assert state.attributes["time_frame_through"] == "2026-09-23T14:00:00+02:00"
+    assert hass.states.get(f"{prefix}_delivery_day").state == "2026-09-23"
+
+
+async def test_delivery_remark_sensor(
+    hass: HomeAssistant, mock_api: AsyncMock, shipment_responses: dict
+) -> None:
+    """The human readable forecast from DHL gets its own sensor."""
+    payload = shipment_payload(TRACKING_NUMBER)
+    payload["estimatedTimeOfDeliveryRemark"] = "Zustellung heute zwischen 10 und 14 Uhr"
+    shipment_responses[TRACKING_NUMBER] = payload
+    entry = build_config_entry(shipments=[{"tracking_number": TRACKING_NUMBER}])
+    await setup_integration(hass, entry)
+
+    prefix = f"sensor.dhl_{TRACKING_NUMBER.lower()}"
+    assert (
+        hass.states.get(f"{prefix}_delivery_forecast").state
+        == "Zustellung heute zwischen 10 und 14 Uhr"
+    )
+    assert (
+        hass.states.get(f"{prefix}_estimated_delivery").attributes["remark"]
+        == "Zustellung heute zwischen 10 und 14 Uhr"
+    )
+
+
+async def test_pickup_day_and_pickup_time(
+    hass: HomeAssistant, mock_api: AsyncMock, shipment_responses: dict
+) -> None:
+    """The pickup field gets the same treatment as the delivery forecast."""
+    payload = shipment_payload(TRACKING_NUMBER)
+    payload["pickUpDate"] = "2026-09-19"
+    shipment_responses[TRACKING_NUMBER] = payload
+    entry = build_config_entry(shipments=[{"tracking_number": TRACKING_NUMBER}])
+    await setup_integration(hass, entry)
+
+    prefix = f"sensor.dhl_{TRACKING_NUMBER.lower()}"
+    assert hass.states.get(f"{prefix}_pickup_date").state == "unknown"
+    assert hass.states.get(f"{prefix}_pickup_day").state == "2026-09-19"
