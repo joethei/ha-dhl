@@ -167,18 +167,6 @@ def _estimated_delivery_day(data: dict[str, Any]) -> date | None:
     )
 
 
-def _iso(value: Any) -> str | None:
-    """Return a timezone aware ISO string for an API date-time value.
-
-    DHL sends the delivery window without a UTC offset (``2026-09-23T13:20:00``
-    means 13:20 German local time). Those naive values are anchored in the time
-    zone configured in Home Assistant, so templates and `as_timestamp` work
-    without the dashboard having to guess the offset.
-    """
-    parsed = parse_api_datetime(value)
-    return parsed.isoformat() if parsed is not None else None
-
-
 def _delivery_attributes(data: dict[str, Any]) -> dict[str, Any]:
     """Return the full delivery forecast as attributes."""
     frame = _delivery_time_frame(data)
@@ -289,6 +277,18 @@ class DhlSensorEntityDescription(SensorEntityDescription):
     """Publish when this shipment was last fetched and when it is due next."""
 
 
+def _iso(value: Any) -> str | None:
+    """Return a timezone aware ISO string for an API date-time value.
+
+    DHL sends the delivery window without a UTC offset (``2026-09-23T13:20:00``
+    means 13:20 German local time). Those naive values are anchored in the time
+    zone configured in Home Assistant, so templates and `as_timestamp` work
+    without the dashboard having to guess the offset.
+    """
+    parsed = parse_api_datetime(value)
+    return parsed.isoformat() if parsed is not None else None
+
+
 def _status_attributes(data: dict[str, Any]) -> dict[str, Any]:
     """Return the trimmed event history for the status sensor."""
     events = data.get("events")
@@ -299,9 +299,11 @@ def _status_attributes(data: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(event, dict):
             continue
         entry = {
-            "timestamp": event.get("timestamp"),
+            # Timezone aware like the delivery window; DHL sends these naive.
+            "timestamp": _iso(event.get("timestamp")),
             "status": event.get("status"),
             "status_code": event.get("statusCode"),
+            "status_detailed": event.get("statusDetailed"),
             "description": event.get("description"),
             "location": _format_place(event.get("location")),
         }

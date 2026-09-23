@@ -518,8 +518,8 @@ Für **Abholdatum** gilt dasselbe: Der Zeitstempel bleibt leer, wenn DHL keine
 Uhrzeit liefert; **Abholtag** zeigt das Datum.
 
 Der Sensor **Status** trägt zusätzlich das Attribut `events` mit den letzten
-zehn Sendungsereignissen (Zeitstempel, Status, Beschreibung, Ort auf
-Stadtebene).
+zehn Sendungsereignissen: `timestamp` (zeitzonenbehaftet), `status`,
+`status_code`, `status_detailed`, `description` und `location` auf Stadtebene.
 
 ## API-Limits und Abfrageintervall
 

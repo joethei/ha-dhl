@@ -3,6 +3,16 @@
 Alle nennenswerten Änderungen an dieser Integration.
 Das Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [0.5.2] – 2026-09-23
+
+### Geändert
+
+- Die Zeitstempel im Attribut `events` sind jetzt **zeitzonenbehaftet**, so wie
+  seit 0.4.0 auch `time_frame_from` / `time_frame_through`. DHL liefert sie
+  ohne Offset; ein Template, das sie mit `now()` vergleicht, wäre sonst an der
+  Mischung aus naiven und zeitzonenbehafteten Werten gescheitert.
+- Jeder Eintrag in `events` trägt zusätzlich `status_detailed`.
+
 ## [0.5.1] – 2026-09-23
 
 ### Behoben

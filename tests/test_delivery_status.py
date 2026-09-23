@@ -227,3 +227,36 @@ async def test_time_frame_remark_attribute(
     ).attributes
     assert attrs["time_frame_remark"] == "Zustellung heute zwischen 10 und 12 Uhr"
     assert attrs["remark"] == attrs["time_frame_remark"]
+
+
+async def test_event_history_timestamps_are_timezone_aware(
+    hass: HomeAssistant, mock_api: AsyncMock, shipment_responses: dict
+) -> None:
+    """The event history must not stay naive while the window is aware.
+
+    DHL sends event timestamps without a UTC offset, just like the delivery
+    window. A template comparing them against `now()` would otherwise fail on
+    a naive/aware mismatch.
+    """
+    data = payload()
+    data["events"] = [
+        {
+            "timestamp": "2026-09-23T08:24:00",
+            "status": "PO",
+            "statusCode": "transit",
+            "statusDetailed": "SRTED_NRQRD_PO",
+            "description": "Die Sendung wurde in das Zustellfahrzeug geladen.",
+        }
+    ]
+    shipment_responses[TRACKING_NUMBER] = data
+    entry = build_config_entry(shipments=[{"tracking_number": TRACKING_NUMBER}])
+    await setup_integration(hass, entry)
+
+    events = hass.states.get(f"sensor.dhl_{TRACKING_NUMBER.lower()}_status").attributes[
+        "events"
+    ]
+    parsed = dt_util.parse_datetime(events[0]["timestamp"])
+    assert parsed is not None
+    assert parsed.tzinfo is not None
+    # The detailed code rides along, like at the top level.
+    assert events[0]["status_detailed"] == "SRTED_NRQRD_PO"
