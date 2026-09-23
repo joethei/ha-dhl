@@ -18,6 +18,7 @@ CONF_SHIPMENTS: Final = "shipments"
 CONF_SCAN_INTERVAL: Final = "scan_interval"
 CONF_LANGUAGE: Final = "language"
 CONF_POLL_DELIVERED: Final = "poll_delivered"
+CONF_AUTO_REMOVE_DELIVERED_DAYS: Final = "auto_remove_delivered_days"
 
 # Legacy config entry key (<= schema version 1), kept for migration only.
 CONF_TRACKING_NUMBERS: Final = "tracking_numbers"
@@ -42,6 +43,10 @@ MAX_SCAN_INTERVAL: Final = 86400  # 24 hours
 # so a late "returned to sender" update is still picked up eventually.
 DELIVERED_SCAN_INTERVAL: Final = 86400  # 24 hours
 DEFAULT_POLL_DELIVERED: Final = True
+
+# Automatically drop delivered shipments after this many days. 0 disables it.
+DEFAULT_AUTO_REMOVE_DELIVERED_DAYS: Final = 3
+MAX_AUTO_REMOVE_DELIVERED_DAYS: Final = 365
 
 # --- DHL API ----------------------------------------------------------------
 API_BASE_URL: Final = "https://api-eu.dhl.com/track"
@@ -71,13 +76,29 @@ STATUS_CODE_PRE_TRANSIT: Final = "pre-transit"
 STATUS_CODE_TRANSIT: Final = "transit"
 STATUS_CODE_UNKNOWN: Final = "unknown"
 
-STATUS_CODES: Final = (
+# Values the API itself can return.
+API_STATUS_CODES: Final = (
     STATUS_CODE_DELIVERED,
     STATUS_CODE_FAILURE,
     STATUS_CODE_PRE_TRANSIT,
     STATUS_CODE_TRANSIT,
     STATUS_CODE_UNKNOWN,
 )
+
+# Derived by this integration on top of `transit`. DHL developer support lists
+# "Out for Delivery" as planned but not yet available in the API, and the
+# division specific texts in `status.status` (for example "PO") are not
+# documented anywhere - DHL states the descriptions "completely depend on each
+# division and their logic". The derivation therefore uses the structured
+# `estimatedDeliveryTimeFrame` instead of any status text.
+STATUS_CODE_OUT_FOR_DELIVERY: Final = "out_for_delivery"
+
+# Exposed as the `options` of the status code sensor.
+STATUS_CODES: Final = (*API_STATUS_CODES, STATUS_CODE_OUT_FOR_DELIVERY)
+
+# A same-day delivery window still counts as "out for delivery" for this long
+# after it has closed - the courier may simply be running late.
+OUT_FOR_DELIVERY_GRACE_HOURS: Final = 2
 
 # --- Poll priority -----------------------------------------------------------
 # The API has no "out for delivery" status: `StatusCode` is documented as a
@@ -104,6 +125,29 @@ PRIORITY_WEIGHT_PRE_TRANSIT: Final = 1
 # never polled more often than its floor allows, even if budget is left over.
 IMMINENT_INTERVAL_DIVISOR: Final = 3
 PRE_TRANSIT_INTERVAL_FACTOR: Final = 2
+
+# --- Delivery features ------------------------------------------------------
+# Normalised service keys exposed as the `services` entity attribute. Only
+# `bulky`, `cash_on_delivery`, `pickup`, `gogreen`, `priority`,
+# `extra_insurance`, `direct_injection` and `import_fees` have a structured
+# counterpart in the API (`ValueAddedService.serviceType`); the rest is parsed
+# out of the free-text product name. See shipment_features.py.
+SERVICE_AGE_CHECK: Final = "age_check"
+SERVICE_BULKY: Final = "bulky"
+SERVICE_CASH_ON_DELIVERY: Final = "cash_on_delivery"
+SERVICE_DIRECT_INJECTION: Final = "direct_injection"
+SERVICE_EXTRA_INSURANCE: Final = "extra_insurance"
+SERVICE_GOGREEN: Final = "gogreen"
+SERVICE_IDENT_CHECK: Final = "ident_check"
+SERVICE_IMPORT_FEES: Final = "import_fees"
+SERVICE_NO_NEIGHBOUR_DELIVERY: Final = "no_neighbour_delivery"
+SERVICE_PICKUP: Final = "pickup"
+SERVICE_PREFERRED_DAY: Final = "preferred_day"
+SERVICE_PREFERRED_LOCATION: Final = "preferred_location"
+SERVICE_PREFERRED_NEIGHBOUR: Final = "preferred_neighbour"
+SERVICE_PRIORITY: Final = "priority"
+SERVICE_RETURN: Final = "return"
+SERVICE_SIGNATURE: Final = "signature"
 
 # --- Services ---------------------------------------------------------------
 SERVICE_ADD_SHIPMENT: Final = "add_shipment"

@@ -39,6 +39,7 @@ from .api import (
 )
 from .const import (
     CONF_API_KEY,
+    CONF_AUTO_REMOVE_DELIVERED_DAYS,
     CONF_LANGUAGE,
     CONF_NAME,
     CONF_POLL_DELIVERED,
@@ -49,6 +50,7 @@ from .const import (
     DEFAULT_LANGUAGE,
     DEFAULT_NAME,
     DOMAIN,
+    MAX_AUTO_REMOVE_DELIVERED_DAYS,
     MAX_SCAN_INTERVAL,
     MIN_SCAN_INTERVAL,
     SUPPORTED_LANGUAGES,
@@ -127,6 +129,18 @@ def _settings_schema(options: DhlOptions) -> vol.Schema:
             vol.Required(
                 CONF_POLL_DELIVERED, default=options.poll_delivered
             ): BooleanSelector(),
+            vol.Required(
+                CONF_AUTO_REMOVE_DELIVERED_DAYS,
+                default=options.auto_remove_delivered_days,
+            ): NumberSelector(
+                NumberSelectorConfig(
+                    min=0,
+                    max=MAX_AUTO_REMOVE_DELIVERED_DAYS,
+                    step=1,
+                    mode=NumberSelectorMode.BOX,
+                    unit_of_measurement="d",
+                )
+            ),
         }
     )
 
@@ -424,6 +438,10 @@ class DhlOptionsFlowHandler(OptionsFlow):
                     ),
                     CONF_LANGUAGE: user_input.get(CONF_LANGUAGE, DEFAULT_LANGUAGE),
                     CONF_POLL_DELIVERED: bool(user_input[CONF_POLL_DELIVERED]),
+                    CONF_AUTO_REMOVE_DELIVERED_DAYS: min(
+                        max(int(user_input[CONF_AUTO_REMOVE_DELIVERED_DAYS]), 0),
+                        MAX_AUTO_REMOVE_DELIVERED_DAYS,
+                    ),
                 }
             )
 

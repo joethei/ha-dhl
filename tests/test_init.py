@@ -46,12 +46,14 @@ async def test_setup_without_tracking_numbers(
     ):
         assert hass.services.has_service(DOMAIN, service)
 
-    # Only the diagnostic API usage sensor exists.
+    # Only the per-entry summary sensors exist, no shipment entities.
     entity_registry = er.async_get(hass)
     entities = er.async_entries_for_config_entry(entity_registry, entry.entry_id)
-    assert [entity.unique_id for entity in entities] == [
-        f"{DOMAIN}_{entry.entry_id}_api_requests_today"
-    ]
+    assert {entity.unique_id for entity in entities} == {
+        f"{DOMAIN}_{entry.entry_id}_api_requests_today",
+        f"{DOMAIN}_{entry.entry_id}_open_shipments",
+        f"{DOMAIN}_{entry.entry_id}_next_delivery",
+    }
 
 
 async def test_setup_creates_entities(

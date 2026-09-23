@@ -305,6 +305,9 @@ async def test_status_change_event(
         "new_status": "Delivered",
         "old_status_code": "transit",
         "new_status_code": "delivered",
+        "old_status_code_api": "transit",
+        "new_status_code_api": "delivered",
+        "description": "The shipment is on its way.",
     }
 
     # An unchanged status does not fire another event.
@@ -363,6 +366,9 @@ async def test_events_contain_no_personal_data(
         "new_status",
         "old_status_code",
         "new_status_code",
+        "old_status_code_api",
+        "new_status_code_api",
+        "description",
     }
     payload = str(events[0].data)
     assert "Erika Mustermann" not in payload

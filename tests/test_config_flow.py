@@ -14,6 +14,7 @@ from custom_components.dhl_tracking.api import (
 )
 from custom_components.dhl_tracking.const import (
     CONF_API_KEY,
+    CONF_AUTO_REMOVE_DELIVERED_DAYS,
     CONF_LANGUAGE,
     CONF_POLL_DELIVERED,
     CONF_SCAN_INTERVAL,
@@ -326,3 +327,52 @@ async def test_options_menu_without_shipments(
 
     result = await hass.config_entries.options.async_init(entry.entry_id)
     assert result["menu_options"] == ["add_shipment", "settings"]
+
+
+async def test_options_flow_auto_remove_delivered(
+    hass: HomeAssistant, mock_api: AsyncMock, mock_config_entry: MockConfigEntry
+) -> None:
+    """The automatic cleanup interval is configurable from the UI."""
+    await setup_integration(hass, mock_config_entry)
+
+    result = await hass.config_entries.options.async_init(mock_config_entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "settings"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            CONF_SCAN_INTERVAL: 30,
+            CONF_LANGUAGE: "de",
+            CONF_POLL_DELIVERED: True,
+            CONF_AUTO_REMOVE_DELIVERED_DAYS: 7,
+        },
+    )
+    await hass.async_block_till_done()
+
+    options = DhlOptions.from_mapping(mock_config_entry.options)
+    assert options.auto_remove_delivered_days == 7
+    assert (
+        mock_config_entry.runtime_data.coordinator.options.auto_remove_delivered_days
+        == 7
+    )
+
+
+async def test_options_flow_auto_remove_defaults(
+    hass: HomeAssistant, mock_api: AsyncMock, mock_config_entry: MockConfigEntry
+) -> None:
+    """Submitting the settings step without the field keeps a valid value."""
+    await setup_integration(hass, mock_config_entry)
+
+    result = await hass.config_entries.options.async_init(mock_config_entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "settings"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {CONF_SCAN_INTERVAL: 30, CONF_LANGUAGE: "de", CONF_POLL_DELIVERED: True},
+    )
+    await hass.async_block_till_done()
+
+    options = DhlOptions.from_mapping(mock_config_entry.options)
+    assert options.auto_remove_delivered_days == 0

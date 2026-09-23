@@ -22,28 +22,30 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.const import EntityCategory, UnitOfMass
-from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers import entity_registry as er
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util import dt as dt_util
 
 from .const import (
     ATTRIBUTION,
     DEFAULT_NAME,
     DOMAIN,
     MANUFACTURER,
-    STATUS_CODE_UNKNOWN,
+    STATUS_CODE_DELIVERED,
     STATUS_CODES,
 )
 from .coordinator import (
     DhlUpdateCoordinator,
-    ShipmentDiff,
     ShipmentPriority,
     ShipmentState,
+    derive_status_code,
     parse_api_date,
     parse_api_datetime,
 )
+from .platform_helper import async_setup_shipment_platform
+from .shipment_features import extract_features
 
 
 def _minutes(coordinator: DhlUpdateCoordinator, priority: ShipmentPriority) -> int:
@@ -158,16 +160,115 @@ def _estimated_delivery_day(data: dict[str, Any]) -> date | None:
     )
 
 
+def _iso(value: Any) -> str | None:
+    """Return a timezone aware ISO string for an API date-time value.
+
+    DHL sends the delivery window without a UTC offset (``2026-09-23T13:20:00``
+    means 13:20 German local time). Those naive values are anchored in the time
+    zone configured in Home Assistant, so templates and `as_timestamp` work
+    without the dashboard having to guess the offset.
+    """
+    parsed = parse_api_datetime(value)
+    return parsed.isoformat() if parsed is not None else None
+
+
 def _delivery_attributes(data: dict[str, Any]) -> dict[str, Any]:
     """Return the full delivery forecast as attributes."""
     frame = _delivery_time_frame(data)
+    remark = data.get("estimatedTimeOfDeliveryRemark")
     attrs = {
-        "time_frame_from": frame.get("estimatedFrom"),
-        "time_frame_through": frame.get("estimatedThrough"),
-        "remark": data.get("estimatedTimeOfDeliveryRemark"),
+        "time_frame_from": _iso(frame.get("estimatedFrom")),
+        "time_frame_through": _iso(frame.get("estimatedThrough")),
+        "time_frame_remark": remark,
+        "remark": remark,
         "raw_estimated_time_of_delivery": data.get("estimatedTimeOfDelivery"),
+        "raw_time_frame_from": frame.get("estimatedFrom"),
+        "raw_time_frame_through": frame.get("estimatedThrough"),
     }
     return {key: value for key, value in attrs.items() if value is not None}
+
+
+def _person_name(entity: Any) -> str | None:
+    """Return a readable name for a ``PersonEntity`` of any @type."""
+    if not isinstance(entity, dict):
+        return None
+    if name := entity.get("name") or entity.get("organizationName"):
+        return str(name)
+    given = entity.get("givenName")
+    family = entity.get("familyName")
+    combined = " ".join(part for part in (given, family) if part)
+    return combined or None
+
+
+def _delivery_location(place: Any) -> dict[str, Any] | None:
+    """Return where a shipment was handed over, from a ``SecuredPlace``."""
+    if not isinstance(place, dict):
+        return None
+
+    location: dict[str, Any] = {}
+    address = place.get("address")
+    if isinstance(address, dict):
+        for source, target in (
+            ("addressLocality", "city"),
+            ("postalCode", "postal_code"),
+            ("streetAddress", "street"),
+            ("countryCode", "country"),
+            ("addressLocalityServicing", "locality_detail"),
+        ):
+            if (value := address.get(source)) is not None:
+                location[target] = value
+
+    service_point = place.get("servicePoint")
+    if isinstance(service_point, dict):
+        for source, target in (
+            ("label", "service_point"),
+            ("url", "service_point_url"),
+        ):
+            if (value := service_point.get(source)) is not None:
+                location[target] = value
+
+    return location or None
+
+
+def _handover_attributes(data: dict[str, Any]) -> dict[str, Any]:
+    """Return who took the parcel and where, once it has been delivered.
+
+    Built from the documented ``details.proofOfDelivery`` object and the
+    ``status.location`` place. Note that this can contain a neighbour's name -
+    it is exposed because a dashboard needs it, but it is not put into events
+    or logs.
+    """
+    status = data.get("status")
+    status = status if isinstance(status, dict) else {}
+    if status.get("statusCode") != STATUS_CODE_DELIVERED:
+        # Before delivery there is nothing to report, and `details.receiver`
+        # is the addressee rather than whoever accepted the parcel - using it
+        # would both be a guess and leak the recipient's name for every
+        # shipment in transit.
+        return {}
+
+    attrs: dict[str, Any] = {}
+    details = data.get("details")
+    details = details if isinstance(details, dict) else {}
+    pod = details.get("proofOfDelivery")
+    pod = pod if isinstance(pod, dict) else {}
+
+    if (signed := _person_name(pod.get("signed"))) is not None:
+        attrs["delivered_to"] = signed
+
+    if (location := _delivery_location(status.get("location"))) is not None:
+        attrs["delivery_location"] = location
+
+    delivered_at = parse_api_datetime(pod.get("timestamp")) or parse_api_datetime(
+        status.get("timestamp")
+    )
+    if delivered_at is not None:
+        attrs["delivered_at"] = delivered_at.isoformat()
+
+    if (url := pod.get("documentUrl")) is not None:
+        attrs["proof_of_delivery_url"] = url
+
+    return attrs
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -199,6 +300,18 @@ def _status_attributes(data: dict[str, Any]) -> dict[str, Any]:
     return {"events": history} if history else {}
 
 
+def _summary_attributes(data: dict[str, Any]) -> dict[str, Any]:
+    """Everything a dashboard needs next to the status code."""
+    return {
+        **extract_features(data).as_attributes(),
+        **_handover_attributes(data),
+        # The unmodified API value, since `status_code` may report the derived
+        # `out_for_delivery`.
+        "status_code_api": _nested(data, "status", "statusCode"),
+        "description": _nested(data, "status", "description"),
+    }
+
+
 SENSOR_DESCRIPTIONS: tuple[DhlSensorEntityDescription, ...] = (
     DhlSensorEntityDescription(
         key="status",
@@ -213,9 +326,8 @@ SENSOR_DESCRIPTIONS: tuple[DhlSensorEntityDescription, ...] = (
         device_class=SensorDeviceClass.ENUM,
         options=list(STATUS_CODES),
         entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda data: _enum(
-            _nested(data, "status", "statusCode"), STATUS_CODES, STATUS_CODE_UNKNOWN
-        ),
+        value_fn=lambda data: derive_status_code(data, dt_util.utcnow()),
+        extra_attrs_fn=_summary_attributes,
     ),
     DhlSensorEntityDescription(
         key="status_timestamp",
@@ -247,6 +359,7 @@ SENSOR_DESCRIPTIONS: tuple[DhlSensorEntityDescription, ...] = (
         translation_key="product_name",
         icon="mdi:package",
         value_fn=lambda data: _nested(data, "details", "product", "productName"),
+        extra_attrs_fn=lambda data: extract_features(data).as_attributes(),
     ),
     DhlSensorEntityDescription(
         key="total_pieces",
@@ -370,40 +483,21 @@ async def async_setup_entry(
 ) -> None:
     """Set up the DHL Tracking sensors and keep them in sync at runtime."""
     coordinator: DhlUpdateCoordinator = entry.runtime_data.coordinator
-    created: dict[str, list[DhlShipmentSensor]] = {}
 
-    @callback
-    def _build(tracking_number: str) -> list[DhlShipmentSensor]:
-        entities = [
+    async_setup_shipment_platform(
+        hass,
+        entry,
+        coordinator,
+        async_add_entities,
+        build=lambda tracking_number: [
             DhlShipmentSensor(coordinator, tracking_number, description)
             for description in SENSOR_DESCRIPTIONS
-        ]
-        created[tracking_number] = entities
-        return entities
-
-    initial: list[SensorEntity] = [DhlApiUsageSensor(coordinator)]
-    for tracking_number in coordinator.states:
-        initial.extend(_build(tracking_number))
-    async_add_entities(initial)
-
-    async def _async_handle_shipment_diff(diff: ShipmentDiff) -> None:
-        """Add or remove entities when the shipment list changed."""
-        registry = er.async_get(hass)
-        for shipment in diff.removed:
-            for entity in created.pop(shipment.tracking_number, []):
-                entity_id = entity.entity_id
-                await entity.async_remove(force_remove=True)
-                if entity_id and registry.async_get(entity_id) is not None:
-                    registry.async_remove(entity_id)
-
-        new_entities: list[SensorEntity] = []
-        for shipment in diff.added:
-            new_entities.extend(_build(shipment.tracking_number))
-        if new_entities:
-            async_add_entities(new_entities)
-
-    entry.async_on_unload(
-        coordinator.async_add_shipment_listener(_async_handle_shipment_diff)
+        ],
+        extra=[
+            DhlApiUsageSensor(coordinator),
+            DhlOpenShipmentsSensor(coordinator),
+            DhlNextDeliverySensor(coordinator),
+        ],
     )
 
 
@@ -412,6 +506,8 @@ class DhlShipmentSensor(CoordinatorEntity[DhlUpdateCoordinator], SensorEntity):
 
     _attr_has_entity_name = True
     _attr_attribution = ATTRIBUTION
+    # The event history is long and changes on every update.
+    _unrecorded_attributes = frozenset({"events"})
     entity_description: DhlSensorEntityDescription
 
     def __init__(
@@ -474,8 +570,12 @@ class DhlShipmentSensor(CoordinatorEntity[DhlUpdateCoordinator], SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
         """Return additional attributes."""
-        attrs: dict[str, Any] = {"tracking_number": self._tracking_number}
         state = self._state
+        attrs: dict[str, Any] = {"tracking_number": self._tracking_number}
+        if state is not None:
+            # The bare shipment name, so a dashboard does not have to strip the
+            # entity suffix off the friendly name.
+            attrs["name"] = state.shipment.display_name
         if (
             state is not None
             and state.data is not None
@@ -545,3 +645,135 @@ class DhlApiUsageSensor(CoordinatorEntity[DhlUpdateCoordinator], SensorEntity):
             ),
             "rate_limit_backoff_until": backoff.isoformat() if backoff else None,
         }
+
+
+class DhlEntrySensor(CoordinatorEntity[DhlUpdateCoordinator], SensorEntity):
+    """Base for the per config entry summary sensors."""
+
+    _attr_has_entity_name = True
+    _attr_attribution = ATTRIBUTION
+
+    def __init__(self, coordinator: DhlUpdateCoordinator, key: str) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator)
+        entry_id = coordinator.config_entry.entry_id
+        self._attr_translation_key = key
+        self._attr_unique_id = f"{DOMAIN}_{entry_id}_{key}"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, entry_id)},
+            name=DEFAULT_NAME,
+            manufacturer=MANUFACTURER,
+            entry_type=DeviceEntryType.SERVICE,
+            configuration_url="https://developer.dhl.com/api-reference/shipment-tracking",
+        )
+
+    @property
+    def available(self) -> bool:
+        """Summaries are computed locally and always available."""
+        return True
+
+    def _open_states(self) -> list[ShipmentState]:
+        """Return the shipments that have not been delivered yet."""
+        return [
+            state for state in self.coordinator.states.values() if not state.delivered
+        ]
+
+
+class DhlOpenShipmentsSensor(DhlEntrySensor):
+    """How many shipments are still on their way, plus a compact overview."""
+
+    _attr_icon = "mdi:package-variant-closed"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    # A per-shipment list would bloat the database on every update.
+    _unrecorded_attributes = frozenset({"shipments"})
+
+    def __init__(self, coordinator: DhlUpdateCoordinator) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator, "open_shipments")
+
+    @property
+    def native_value(self) -> int:
+        """Return the number of shipments that are not delivered."""
+        return len(self._open_states())
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return one entry per open shipment."""
+        shipments = []
+        for state in self._open_states():
+            data = state.data or {}
+            frame = _delivery_time_frame(data)
+            features = extract_features(data)
+            delivery = _estimated_delivery_time(data)
+            day = _estimated_delivery_day(data)
+            shipments.append(
+                {
+                    "tracking_number": state.tracking_number,
+                    "name": state.shipment.display_name,
+                    "status_code": derive_status_code(data, dt_util.utcnow()),
+                    "status": _nested(data, "status", "status"),
+                    "description": _nested(data, "status", "description"),
+                    "estimated_delivery": (
+                        delivery.isoformat() if delivery is not None else None
+                    ),
+                    "estimated_delivery_date": day.isoformat() if day else None,
+                    "time_frame_from": _iso(frame.get("estimatedFrom")),
+                    "time_frame_through": _iso(frame.get("estimatedThrough")),
+                    "signature_required": features.signature_required,
+                    "id_required": features.id_required,
+                    "services": list(features.services),
+                }
+            )
+        return {"shipments": shipments}
+
+
+class DhlNextDeliverySensor(DhlEntrySensor):
+    """The earliest delivery expected across all open shipments."""
+
+    _attr_icon = "mdi:truck-delivery"
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+
+    def __init__(self, coordinator: DhlUpdateCoordinator) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator, "next_delivery")
+
+    def _earliest_time(self) -> tuple[datetime, ShipmentState] | None:
+        """Return the earliest precise delivery time, if any shipment has one."""
+        candidates = [
+            (moment, state)
+            for state in self._open_states()
+            if (moment := _estimated_delivery_time(state.data or {})) is not None
+        ]
+        return min(candidates, key=lambda item: item[0]) if candidates else None
+
+    def _earliest_day(self) -> tuple[date, ShipmentState] | None:
+        """Return the earliest known delivery day, even without a time."""
+        candidates = [
+            (day, state)
+            for state in self._open_states()
+            if (day := _estimated_delivery_day(state.data or {})) is not None
+        ]
+        return min(candidates, key=lambda item: item[0]) if candidates else None
+
+    @property
+    def native_value(self) -> datetime | None:
+        """Return the earliest delivery time DHL actually committed to."""
+        earliest = self._earliest_time()
+        return earliest[0] if earliest is not None else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return which shipment the value belongs to, plus the day level view.
+
+        A German parcel usually only has a delivery *day*, so the day level
+        attributes stay populated even when the timestamp above is empty.
+        """
+        attrs: dict[str, Any] = {}
+        if (earliest := self._earliest_time()) is not None:
+            attrs["tracking_number"] = earliest[1].tracking_number
+            attrs["name"] = earliest[1].shipment.display_name
+        if (earliest_day := self._earliest_day()) is not None:
+            attrs["earliest_date"] = earliest_day[0].isoformat()
+            attrs["earliest_date_tracking_number"] = earliest_day[1].tracking_number
+            attrs["earliest_date_name"] = earliest_day[1].shipment.display_name
+        return attrs

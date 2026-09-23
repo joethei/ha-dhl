@@ -15,6 +15,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.dhl_tracking.const import (
     CONF_API_KEY,
+    CONF_AUTO_REMOVE_DELIVERED_DAYS,
     CONF_SHIPMENTS,
     DOMAIN,
 )
@@ -97,6 +98,10 @@ def build_config_entry(
         entry_options = dict(options)
         if shipments is not None:
             entry_options[CONF_SHIPMENTS] = shipments
+    # Automatic cleanup of delivered shipments is opt-in per test, so that a
+    # fixture timestamp drifting past the default age cannot silently delete
+    # shipments a test is asserting on.
+    entry_options.setdefault(CONF_AUTO_REMOVE_DELIVERED_DAYS, 0)
     return MockConfigEntry(
         domain=DOMAIN,
         title="DHL Tracking",

@@ -141,11 +141,12 @@ async def test_unique_ids_and_device_grouping(
         )
         if entity.device_id == device.id
     ]
-    assert len(shipment_entities) == len(SENSOR_DESCRIPTIONS)
+    # Every sensor plus the status event entity.
+    assert len(shipment_entities) == len(SENSOR_DESCRIPTIONS) + 1
     expected = {
         f"{DOMAIN}_{TRACKING_NUMBER}_{description.key}"
         for description in SENSOR_DESCRIPTIONS
-    }
+    } | {f"{DOMAIN}_{TRACKING_NUMBER}_status_event"}
     assert {entity.unique_id for entity in shipment_entities} == expected
 
 

@@ -10,7 +10,9 @@ Assistant noch eine Neueingabe des API-Schlüssels ist nötig.
 
 ## Funktionsumfang
 
-- 📦 Ein Gerät pro Sendung mit 21 Sensoren, gruppiert in der Home-Assistant-Oberfläche
+- 📦 Ein Gerät pro Sendung mit 21 Sensoren und einer Event-Entität, gruppiert in der Home-Assistant-Oberfläche
+- 🏷️ Zustellmerkmale strukturiert: `signature_required`, `id_required`, `services`, Nachnahmebetrag
+- 🚚 Eigener Status `out_for_delivery`, abgeleitet aus dem Zustellfenster
 - ➕ `dhl_tracking.add_shipment` / `dhl_tracking.remove_shipment` /
   `dhl_tracking.remove_delivered_shipments` als vollwertige Aktionen
 - 🖱️ Options Flow unter *Einstellungen → Geräte & Dienste → DHL Tracking → Konfigurieren*
@@ -84,7 +86,7 @@ Beim Einrichten wird **genau ein** API-Aufruf zur Prüfung des Schlüssels gemac
 | **Sendung hinzufügen** | Neue Sendungsnummer mit optionalem Anzeigenamen und Empfänger-PLZ |
 | **Sendung bearbeiten** | Anzeigename und Empfänger-PLZ einer vorhandenen Sendung ändern |
 | **Sendungen entfernen** | Mehrere Sendungen gleichzeitig entfernen |
-| **Abfrage-Einstellungen** | Intervall, Antwortsprache, Umgang mit zugestellten Sendungen |
+| **Abfrage-Einstellungen** | Intervall, Antwortsprache, Umgang mit zugestellten Sendungen, automatisches Aufräumen |
 
 Options Flow und Aktionen schreiben in denselben Datenbestand (die Config-Entry-Options),
 sind also immer synchron. Änderungen greifen sofort – der Config Entry wird dabei
@@ -164,11 +166,16 @@ Beispiel-Payload von `dhl_tracking_status_changed`:
 ```yaml
 tracking_number: "00340434123456789012"
 name: "Ersatzteil"
-old_status: "In Zustellung"
+old_status: "PO"                      # status.status, Freitext von DHL
 new_status: "Zugestellt"
-old_status_code: "transit"
+old_status_code: "out_for_delivery"   # abgeleiteter Wert
 new_status_code: "delivered"
+old_status_code_api: "transit"        # unveraenderter API-Wert
+new_status_code_api: "delivered"
+description: "Die Sendung wurde zugestellt."
 ```
+
+Zusaetzlich gibt es je Sendung eine [Event-Entitaet](#event-entitaet-je-sendung).
 
 Die Ereignisse enthalten bewusst **keine** API-Schlüssel, Adressen oder
 Empfängernamen. Beim Start von Home Assistant wird für bereits bekannte
@@ -245,7 +252,7 @@ actions:
 
 ## Entities
 
-Pro Sendung wird ein Gerät mit 21 Sensoren angelegt. Die Unique IDs haben das
+Pro Sendung wird ein Gerät mit 21 Sensoren und einer Event-Entität angelegt. Die Unique IDs haben das
 Format `dhl_tracking_<sendungsnummer>_<sensor>` und sind gegenüber früheren
 Versionen unverändert – vorhandene Entity-IDs bleiben also erhalten.
 
@@ -278,6 +285,152 @@ mit dem Diagnosesensor **API-Anfragen heute**. Dessen Attribute zeigen das
 Tagesbudget, den geschätzten Tagesverbrauch, die Anzahl Sendungen je Priorität
 (`imminent_shipments`, `transit_shipments`, `pre_transit_shipments`) und das
 daraus resultierende Intervall je Priorität (`interval_minutes_imminent` usw.).
+
+### Übersichts-Sensoren
+
+Am Dienst-Gerät „DHL Tracking" hängen drei Sensoren, die alle Sendungen
+zusammenfassen:
+
+| Entity-ID (deutsche Oberfläche) | Wert |
+|---|---|
+| `sensor.dhl_tracking_offene_sendungen` | Anzahl Sendungen mit Status ≠ `delivered` |
+| `sensor.dhl_tracking_nachste_zustellung` | früheste konkrete Zustellzeit (`timestamp`) |
+| `sensor.dhl_tracking_api_anfragen_heute` | verbrauchtes Tagesbudget |
+
+> Das Präfix ist `dhl_tracking_`, weil Home Assistant die Entity-ID aus dem
+> Gerätenamen („DHL Tracking") ableitet, und `nachste` ohne Umlaut, weil die
+> ID-Erzeugung `ä` zu `a` reduziert. Umbenennen geht jederzeit über die
+> Entitäts-Einstellungen.
+
+`offene_sendungen` trägt das Attribut `shipments` – eine Liste mit einem Objekt
+je offener Sendung:
+
+```yaml
+shipments:
+  - tracking_number: "00340434123456789012"
+    name: "Ersatzteil"
+    status_code: out_for_delivery
+    status: "PO"
+    description: "Die Sendung wurde in das Zustellfahrzeug geladen."
+    estimated_delivery: "2026-09-23T13:20:00+02:00"
+    estimated_delivery_date: "2026-09-23"
+    time_frame_from: "2026-09-23T13:20:00+02:00"
+    time_frame_through: "2026-09-23T14:50:00+02:00"
+    signature_required: true
+    id_required: false
+    services: ["signature"]
+```
+
+`nachste_zustellung` liefert die früheste **konkrete** Zustellzeit. Da DHL bei
+Paketen oft nur einen Tag kennt, tragen die Attribute zusätzlich die
+Tagesebene: `earliest_date`, `earliest_date_tracking_number`,
+`earliest_date_name`.
+
+Beide Attributlisten werden bewusst **nicht** in der Datenbank aufgezeichnet.
+
+### Zustellmerkmale (Unterschrift, Nachnahme, Wunschoptionen)
+
+Die Sensoren **Statuscode** und **Produkt** tragen die Zustellmerkmale
+strukturiert, damit ein Dashboard nicht den Produkttext parsen muss:
+
+```yaml
+services: ["signature"]
+signature_required: true
+id_required: false
+services_raw: ["DHL PAKET"]
+cash_on_delivery_amount: 49.9     # nur bei Nachnahme
+currency: "EUR"
+```
+
+| Schlüssel | Bedeutung | Quelle |
+|---|---|---|
+| `bulky` | Sperrgut | strukturiert |
+| `cash_on_delivery` | Nachnahme | strukturiert |
+| `pickup`, `gogreen`, `priority` | gebuchte Zusatzleistungen | strukturiert |
+| `extra_insurance`, `direct_injection`, `import_fees` | gebuchte Zusatzleistungen | strukturiert |
+| `return` | Rücksendung (`returnFlag`) | strukturiert |
+| `signature` | Empfängerunterschrift | Produkttext |
+| `ident_check` | Ident-Check / Postident | Produkttext |
+| `age_check` | Alterssichtprüfung | Produkttext |
+| `preferred_day` | Wunschtag | Produkttext |
+| `preferred_location` | Wunschort / Abstellgenehmigung | Produkttext |
+| `preferred_neighbour` | Wunschnachbar | Produkttext |
+| `no_neighbour_delivery` | keine Nachbarschaftsabgabe / eigenhändig | Produkttext |
+
+`signature_required` ist `true` bei Empfängerunterschrift, Ident-Check,
+Alterssichtprüfung und Nachnahme. `id_required` ist `true`, wenn ein Ausweis
+gezeigt werden muss (Ident-Check, Alterssichtprüfung).
+
+**Warum teils Text-Parsing?** Das einzige strukturierte Feld der API ist
+`details.valueAddedServices.services[].serviceType`, und dessen Enum umfasst
+laut OpenAPI 1.5.6 nur `bulky`, `pickup`, `gogreen`, `priority`,
+`extraInsurance`, `directInjection`, `cashOnDelivery` und `importFees`.
+Empfängerunterschrift, Ident-Check und die Wunschoptionen liefert DHL
+ausschließlich im Freitext `details.product.productName`
+(`"DHL PAKET, Empfängerunterschrift"`). Das strukturierte Feld hat immer
+Vorrang; der Text wird nur für das ausgewertet, was es nicht abdecken kann.
+Nicht erkannte Fragmente landen unverändert in `services_raw`.
+
+### Status „In Zustellung"
+
+Der Sensor **Statuscode** kennt einen sechsten Wert `out_for_delivery`,
+zusätzlich zu den fünf von DHL dokumentierten. Der unveränderte API-Wert steht
+weiterhin im Attribut `status_code_api`.
+
+**Woraus abgeleitet?** Aus dem strukturierten `estimatedDeliveryTimeFrame`:
+Ein Zustellfenster, das **am selben lokalen Tag beginnt und endet** und dessen
+Tag heute ist, ist die enge Tagesprognose, die DHL veröffentlicht, sobald ein
+Paket im Zustellfahrzeug liegt. Eine mehrtägige Spanne zählt bewusst nicht.
+Nach Fensterende bleibt der Status noch zwei Stunden bestehen – der Zusteller
+kann sich verspäten.
+
+**Warum nicht am Statustext?** DHLs Entwickler-Support schreibt, dass
+„Out for Delivery" zwar geplant, aber **noch nicht in der API verfügbar** ist,
+und zu den Statusbeschreibungen: *„we do not have any concrete information
+about that. It is completely depends on each division and their logic."*
+Der bei `parcel-de` auftauchende Wert `PO` ist weder in der OpenAPI-
+Spezifikation noch in einem Support-Artikel dokumentiert. Darauf zu matchen
+wäre Raterei auf undokumentierten, zudem lokalisierten Daten.
+
+### Zustellort nach der Zustellung
+
+Sobald `statusCode` = `delivered` ist, tragen **Statuscode** und **Status**
+zusätzlich:
+
+```yaml
+delivered_to: "Erika Mustermann"        # aus details.proofOfDelivery.signed
+delivered_at: "2026-09-23T11:05:00+02:00"
+delivery_location:
+  city: "Hamburg"
+  postal_code: "20095"
+  country: "DE"
+  service_point: "Packstation 123"      # falls Packstation/Filiale
+  service_point_url: "https://www.dhl.de/..."
+proof_of_delivery_url: "https://webpod.dhl.com/pod?token=..."
+```
+
+> **Datenschutzhinweis:** `delivered_to` kann den Namen eines Nachbarn
+> enthalten. Das Attribut existiert nur bei zugestellten Sendungen und
+> erscheint **nicht** in Ereignissen oder Logs. Vor der Zustellung wird nichts
+> veröffentlicht – insbesondere wird `details.receiver` (der Adressat) *nicht*
+> als `delivered_to` ausgegeben, denn das wäre geraten.
+
+### Event-Entität je Sendung
+
+Jede Sendung hat zusätzlich eine Event-Entität (`event.<name>_sendungsstatus`)
+mit den Event-Typen `pre_transit`, `transit`, `out_for_delivery`, `delivered`,
+`failure` und `unknown`. Sie eignet sich als Automationstrigger:
+
+```yaml
+triggers:
+  - trigger: state
+    entity_id: event.ersatzteil_sendungsstatus
+    attribute: event_type
+    to: out_for_delivery
+```
+
+Beim Start von Home Assistant wird **kein** Event ausgelöst – nur echte
+Statusänderungen zählen.
 
 ### Zustellprognose
 
@@ -413,6 +566,26 @@ Das Intervall lässt sich unter *Konfigurieren → Abfrage-Einstellungen* zwisch
 5 Minuten und 24 Stunden einstellen. Kürzere Werte werden vom Fair-Share-
 Intervall überschrieben, sobald mehrere Sendungen aktiv sind.
 
+## Zugestellte Sendungen automatisch entfernen
+
+*Konfigurieren → Abfrage-Einstellungen → „Zugestellte Sendungen entfernen nach"*
+
+| Wert | Verhalten |
+|---|---|
+| `0` | Zugestellte Sendungen bleiben dauerhaft erhalten |
+| `n` | Eine Sendung wird entfernt, sobald ihre Zustellung `n` Tage zurückliegt |
+
+**Standard ist 3 Tage.** Nach dem Update auf 0.4.0 räumt die Integration also
+von selbst auf. Wer das nicht möchte, stellt den Wert auf `0`.
+
+Entfernt wird dasselbe wie bei `dhl_tracking.remove_shipment`: Eintrag im
+persistenten Speicher, Entities aus der Entity Registry und das Gerät. Das
+Ereignis `dhl_tracking_shipment_removed` wird gefeuert. Sendungen ohne
+Zustell-Zeitstempel werden nie automatisch entfernt.
+
+Die Aktion `dhl_tracking.remove_delivered_shipments` bleibt unverändert
+verfügbar, falls das Aufräumen lieber über eine eigene Automation laufen soll.
+
 ## Datenmodell und Persistenz
 
 Jede Sendung wird strukturiert gespeichert:
@@ -475,6 +648,16 @@ Bestehende Einträge werden automatisch von Schema-Version 1 auf 2 migriert:
 - Die Debug-Attribute `api_path` und `raw_value` entfallen; stattdessen gibt es
   vollständige, redigierte **Diagnosedaten** pro Konfigurationseintrag.
 - Das Standardintervall ist 30 Minuten statt 10 Minuten (siehe API-Limits).
+- Seit 0.4.0 ist **„Zugestellte Sendungen entfernen nach" auf 3 Tage
+  vorbelegt** – zugestellte Sendungen verschwinden also automatisch. Auf `0`
+  stellen, um das abzuschalten.
+- Seit 0.4.0 melden Sendungen im Zustellfahrzeug den Statuscode
+  `out_for_delivery` statt `transit`. Dashboards, die auf `transit` filtern,
+  sollten beide Werte berücksichtigen; der rohe API-Wert steht im Attribut
+  `status_code_api`.
+- `time_frame_from` / `time_frame_through` sind seit 0.4.0
+  zeitzonenbehaftet. Die unveränderten API-Strings stehen unter
+  `raw_time_frame_from` / `raw_time_frame_through`.
 
 ## Datenschutz und Funktionsgrenzen
 

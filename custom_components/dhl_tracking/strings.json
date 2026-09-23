@@ -87,11 +87,13 @@
         "data": {
           "scan_interval": "Polling interval for active shipments",
           "language": "Response language",
-          "poll_delivered": "Keep polling delivered shipments (once a day)"
+          "poll_delivered": "Keep polling delivered shipments (once a day)",
+          "auto_remove_delivered_days": "Remove delivered shipments after"
         },
         "data_description": {
           "scan_interval": "Minimum 5 minutes. With several shipments the effective interval is stretched automatically to stay inside the daily request budget.",
-          "poll_delivered": "Disable this to stop spending API calls on shipments that were already delivered."
+          "poll_delivered": "Disable this to stop spending API calls on shipments that were already delivered.",
+          "auto_remove_delivered_days": "0 keeps delivered shipments forever. Otherwise a shipment is removed once its delivery is this many days in the past."
         }
       }
     },
@@ -132,7 +134,8 @@
           "failure": "Failure",
           "pre-transit": "Pre-transit",
           "transit": "In transit",
-          "unknown": "Unknown"
+          "unknown": "Unknown",
+          "out_for_delivery": "Out for delivery"
         }
       },
       "status_timestamp": {
@@ -198,6 +201,29 @@
       },
       "api_requests_today": {
         "name": "API requests today"
+      },
+      "open_shipments": {
+        "name": "Open shipments"
+      },
+      "next_delivery": {
+        "name": "Next delivery"
+      }
+    },
+    "event": {
+      "shipment_status": {
+        "name": "Shipment status",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "pre_transit": "Pre-transit",
+              "transit": "In transit",
+              "out_for_delivery": "Out for delivery",
+              "delivered": "Delivered",
+              "failure": "Failure",
+              "unknown": "Unknown"
+            }
+          }
+        }
       }
     }
   },

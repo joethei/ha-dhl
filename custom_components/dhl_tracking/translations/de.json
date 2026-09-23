@@ -87,11 +87,13 @@
         "data": {
           "scan_interval": "Abfrageintervall für aktive Sendungen",
           "language": "Sprache der API-Antwort",
-          "poll_delivered": "Zugestellte Sendungen weiter abfragen (einmal täglich)"
+          "poll_delivered": "Zugestellte Sendungen weiter abfragen (einmal täglich)",
+          "auto_remove_delivered_days": "Zugestellte Sendungen entfernen nach"
         },
         "data_description": {
           "scan_interval": "Mindestens 5 Minuten. Bei mehreren Sendungen wird das effektive Intervall automatisch gestreckt, um im Tagesbudget zu bleiben.",
-          "poll_delivered": "Deaktivieren, um für bereits zugestellte Sendungen keine API-Aufrufe mehr zu verbrauchen."
+          "poll_delivered": "Deaktivieren, um für bereits zugestellte Sendungen keine API-Aufrufe mehr zu verbrauchen.",
+          "auto_remove_delivered_days": "0 behält zugestellte Sendungen dauerhaft. Sonst wird eine Sendung entfernt, sobald ihre Zustellung so viele Tage zurückliegt."
         }
       }
     },
@@ -132,7 +134,8 @@
           "failure": "Fehlgeschlagen",
           "pre-transit": "Angekündigt",
           "transit": "Unterwegs",
-          "unknown": "Unbekannt"
+          "unknown": "Unbekannt",
+          "out_for_delivery": "In Zustellung"
         }
       },
       "status_timestamp": {
@@ -198,6 +201,29 @@
       },
       "api_requests_today": {
         "name": "API-Anfragen heute"
+      },
+      "open_shipments": {
+        "name": "Offene Sendungen"
+      },
+      "next_delivery": {
+        "name": "Nächste Zustellung"
+      }
+    },
+    "event": {
+      "shipment_status": {
+        "name": "Sendungsstatus",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "pre_transit": "Angekündigt",
+              "transit": "Unterwegs",
+              "out_for_delivery": "In Zustellung",
+              "delivered": "Zugestellt",
+              "failure": "Fehlgeschlagen",
+              "unknown": "Unbekannt"
+            }
+          }
+        }
       }
     }
   },

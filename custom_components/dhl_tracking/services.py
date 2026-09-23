@@ -6,7 +6,7 @@ entry options - so both stay in sync automatically.
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 import logging
 from typing import Any
 
@@ -194,6 +194,18 @@ async def _async_remove_delivered_shipments(call: ServiceCall) -> ServiceRespons
     older_than_days: int = call.data[ATTR_OLDER_THAN_DAYS]
     cutoff = dt_util.utcnow() - timedelta(days=older_than_days)
 
+    removed = await async_purge_delivered(hass, entry, cutoff)
+    return {"removed": removed, "count": len(removed)}
+
+
+async def async_purge_delivered(
+    hass: HomeAssistant, entry: ConfigEntry, cutoff: datetime
+) -> list[str]:
+    """Remove every shipment delivered at or before ``cutoff``.
+
+    Shared by the action and by the automatic cleanup in the coordinator, so
+    both behave identically.
+    """
     async with entry.runtime_data.lock:
         coordinator = entry.runtime_data.coordinator
         options = DhlOptions.from_mapping(entry.options)
@@ -224,7 +236,7 @@ async def _async_remove_delivered_shipments(call: ServiceCall) -> ServiceRespons
                 ),
             )
 
-    return {"removed": removed, "count": len(removed)}
+    return removed
 
 
 def _optional_str(value: Any) -> str | None:

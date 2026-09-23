@@ -12,6 +12,7 @@ from homeassistant.exceptions import ServiceValidationError
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    CONF_AUTO_REMOVE_DELIVERED_DAYS,
     CONF_CREATED_AT,
     CONF_LANGUAGE,
     CONF_NAME,
@@ -21,10 +22,12 @@ from .const import (
     CONF_SHIPMENTS,
     CONF_TRACKING_NUMBER,
     CONF_TRACKING_NUMBERS,
+    DEFAULT_AUTO_REMOVE_DELIVERED_DAYS,
     DEFAULT_LANGUAGE,
     DEFAULT_POLL_DELIVERED,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
+    MAX_AUTO_REMOVE_DELIVERED_DAYS,
     MAX_NAME_LENGTH,
     MAX_SCAN_INTERVAL,
     MIN_SCAN_INTERVAL,
@@ -159,6 +162,7 @@ class DhlOptions:
     scan_interval: int = DEFAULT_SCAN_INTERVAL
     language: str = DEFAULT_LANGUAGE
     poll_delivered: bool = DEFAULT_POLL_DELIVERED
+    auto_remove_delivered_days: int = DEFAULT_AUTO_REMOVE_DELIVERED_DAYS
 
     @classmethod
     def from_mapping(cls, options: Mapping[str, Any]) -> Self:
@@ -173,6 +177,15 @@ class DhlOptions:
             scan_interval = DEFAULT_SCAN_INTERVAL
         scan_interval = min(max(scan_interval, MIN_SCAN_INTERVAL), MAX_SCAN_INTERVAL)
 
+        auto_remove = options.get(
+            CONF_AUTO_REMOVE_DELIVERED_DAYS, DEFAULT_AUTO_REMOVE_DELIVERED_DAYS
+        )
+        try:
+            auto_remove = int(auto_remove)
+        except (TypeError, ValueError):
+            auto_remove = DEFAULT_AUTO_REMOVE_DELIVERED_DAYS
+        auto_remove = min(max(auto_remove, 0), MAX_AUTO_REMOVE_DELIVERED_DAYS)
+
         language = options.get(CONF_LANGUAGE) or DEFAULT_LANGUAGE
         return cls(
             shipments=shipments,
@@ -181,6 +194,7 @@ class DhlOptions:
             poll_delivered=bool(
                 options.get(CONF_POLL_DELIVERED, DEFAULT_POLL_DELIVERED)
             ),
+            auto_remove_delivered_days=auto_remove,
         )
 
     def as_dict(self) -> dict[str, Any]:
@@ -190,6 +204,7 @@ class DhlOptions:
             CONF_SCAN_INTERVAL: self.scan_interval,
             CONF_LANGUAGE: self.language,
             CONF_POLL_DELIVERED: self.poll_delivered,
+            CONF_AUTO_REMOVE_DELIVERED_DAYS: self.auto_remove_delivered_days,
         }
 
     def with_shipments(self, shipments: Iterable[Shipment]) -> Self:
@@ -199,6 +214,7 @@ class DhlOptions:
             scan_interval=self.scan_interval,
             language=self.language,
             poll_delivered=self.poll_delivered,
+            auto_remove_delivered_days=self.auto_remove_delivered_days,
         )
 
     def get(self, tracking_number: str) -> Shipment | None:

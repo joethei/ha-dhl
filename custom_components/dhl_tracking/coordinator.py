@@ -50,6 +50,7 @@ from .api import (
 )
 from .const import (
     API_MIN_SECONDS_BETWEEN_CALLS,
+    API_STATUS_CODES,
     DAILY_REQUEST_BUDGET,
     DELIVERED_SCAN_INTERVAL,
     DELIVERY_IMMINENT_LEAD_HOURS,
@@ -60,6 +61,7 @@ from .const import (
     EVENT_STATUS_CHANGED,
     IMMINENT_INTERVAL_DIVISOR,
     MIN_SCAN_INTERVAL,
+    OUT_FOR_DELIVERY_GRACE_HOURS,
     PRE_TRANSIT_INTERVAL_FACTOR,
     PRIORITY_WEIGHT_IMMINENT,
     PRIORITY_WEIGHT_PRE_TRANSIT,
@@ -67,9 +69,13 @@ from .const import (
     RATE_LIMIT_BACKOFF_MAX,
     RATE_LIMIT_BACKOFF_START,
     STATUS_CODE_DELIVERED,
+    STATUS_CODE_OUT_FOR_DELIVERY,
     STATUS_CODE_PRE_TRANSIT,
+    STATUS_CODE_TRANSIT,
+    STATUS_CODE_UNKNOWN,
 )
 from .models import DhlOptions, Shipment
+from .services import async_purge_delivered
 from .store import DhlStateStore
 
 _LOGGER = logging.getLogger(__name__)
@@ -121,6 +127,9 @@ class ShipmentState:
     error: str | None = None
     status: str | None = None
     status_code: str | None = None
+    """Raw ``status.statusCode`` as returned by the API."""
+    effective_status_code: str | None = None
+    """``status_code``, refined with the derived ``out_for_delivery``."""
 
     @property
     def tracking_number(self) -> str:
@@ -148,7 +157,7 @@ class ShipmentState:
         """Return how urgently this shipment needs fresh data."""
         if self.delivered:
             return ShipmentPriority.DELIVERED
-        if self.delivery_imminent(now):
+        if is_out_for_delivery(self.data, now) or self.delivery_imminent(now):
             return ShipmentPriority.IMMINENT
         if self.status_code == STATUS_CODE_PRE_TRANSIT:
             return ShipmentPriority.PRE_TRANSIT
@@ -196,6 +205,7 @@ class ShipmentDiff:
 
 
 ShipmentListener = Callable[[ShipmentDiff], Coroutine[Any, Any, None]]
+StatusListener = Callable[["ShipmentState", dict[str, Any]], None]
 
 
 def parse_api_datetime(value: Any) -> datetime | None:
@@ -242,6 +252,61 @@ def parse_api_instant(value: Any) -> datetime | None:
     return datetime.combine(
         parsed_date, datetime.min.time(), tzinfo=dt_util.get_default_time_zone()
     )
+
+
+def delivery_time_frame(
+    data: dict[str, Any] | None,
+) -> tuple[datetime | None, datetime | None]:
+    """Return the estimated delivery window as aware datetimes."""
+    frame = (data or {}).get("estimatedDeliveryTimeFrame")
+    if not isinstance(frame, dict):
+        return None, None
+    return (
+        parse_api_instant(frame.get("estimatedFrom")),
+        parse_api_instant(frame.get("estimatedThrough")),
+    )
+
+
+def is_out_for_delivery(data: dict[str, Any] | None, now: datetime) -> bool:
+    """Return whether the shipment is on the delivery vehicle today.
+
+    The API has no status code for this. DHL developer support lists "Out for
+    Delivery" as planned but not yet available, and explicitly declines to
+    document what the division specific strings in ``status.status`` (such as
+    ``PO``) mean. Matching those would be guesswork on undocumented, localized
+    data.
+
+    The structured ``estimatedDeliveryTimeFrame`` is used instead: a window
+    that opens *and* closes on today's local date is the narrow, same-day
+    forecast DHL publishes once a parcel is out for delivery. A multi-day
+    window - the ordinary "somewhere between Tuesday and Thursday" forecast -
+    deliberately does not qualify.
+    """
+    start, end = delivery_time_frame(data)
+    if start is None or end is None:
+        return False
+
+    local_start = dt_util.as_local(start)
+    local_end = dt_util.as_local(end)
+    if local_start.date() != local_end.date():
+        return False
+
+    local_now = dt_util.as_local(now)
+    if local_now.date() != local_start.date():
+        return False
+
+    return now <= end + timedelta(hours=OUT_FOR_DELIVERY_GRACE_HOURS)
+
+
+def derive_status_code(data: dict[str, Any] | None, now: datetime) -> str | None:
+    """Return the effective status code, including ``out_for_delivery``."""
+    raw = ((data or {}).get("status") or {}).get("statusCode")
+    if raw is None:
+        return None
+    code = raw if raw in API_STATUS_CODES else STATUS_CODE_UNKNOWN
+    if code == STATUS_CODE_TRANSIT and is_out_for_delivery(data, now):
+        return STATUS_CODE_OUT_FOR_DELIVERY
+    return code
 
 
 class RequestBudget:
@@ -344,6 +409,7 @@ class DhlUpdateCoordinator(DataUpdateCoordinator[dict[str, ShipmentState]]):
         self.min_seconds_between_calls = API_MIN_SECONDS_BETWEEN_CALLS
 
         self._shipment_listeners: list[ShipmentListener] = []
+        self._status_listeners: list[StatusListener] = []
         self._last_request_at: datetime | None = None
         self._announce_first_status: set[str] = set()
 
@@ -371,6 +437,9 @@ class DhlUpdateCoordinator(DataUpdateCoordinator[dict[str, ShipmentState]]):
                 state.last_success = parse_api_datetime(restored.get("last_success"))
                 state.status = restored.get("status")
                 state.status_code = restored.get("status_code")
+                state.effective_status_code = restored.get(
+                    "effective_status_code"
+                ) or restored.get("status_code")
             self.states[shipment.tracking_number] = state
 
         self.data = self.states
@@ -386,6 +455,18 @@ class DhlUpdateCoordinator(DataUpdateCoordinator[dict[str, ShipmentState]]):
         def _remove() -> None:
             if listener in self._shipment_listeners:
                 self._shipment_listeners.remove(listener)
+
+        return _remove
+
+    @callback
+    def async_add_status_listener(self, listener: StatusListener) -> Callable[[], None]:
+        """Register a listener called on every real status change."""
+        self._status_listeners.append(listener)
+
+        @callback
+        def _remove() -> None:
+            if listener in self._status_listeners:
+                self._status_listeners.remove(listener)
 
         return _remove
 
@@ -407,6 +488,7 @@ class DhlUpdateCoordinator(DataUpdateCoordinator[dict[str, ShipmentState]]):
                         ),
                         "status": state.status,
                         "status_code": state.status_code,
+                        "effective_status_code": state.effective_status_code,
                     }
                     for tracking_number, state in self.states.items()
                 },
@@ -659,7 +741,42 @@ class DhlUpdateCoordinator(DataUpdateCoordinator[dict[str, ShipmentState]]):
 
         if polled:
             self._persist()
+            self._async_schedule_auto_cleanup()
         return self.states
+
+    @callback
+    def _async_schedule_auto_cleanup(self) -> None:
+        """Drop delivered shipments once they are old enough.
+
+        Runs as a background task: the cleanup writes the config entry
+        options, which must not happen while the coordinator update that
+        triggered it is still in flight.
+        """
+        days = self.options.auto_remove_delivered_days
+        if not days:
+            return
+        cutoff = dt_util.utcnow() - timedelta(days=days)
+        if not any(
+            state.delivered
+            and state.delivered_at is not None
+            and state.delivered_at <= cutoff
+            for state in self.states.values()
+        ):
+            return
+
+        self.config_entry.async_create_background_task(
+            self.hass, self._async_auto_cleanup(cutoff), f"{DOMAIN} auto cleanup"
+        )
+
+    async def _async_auto_cleanup(self, cutoff: datetime) -> None:
+        """Perform the automatic cleanup."""
+        removed = await async_purge_delivered(self.hass, self.config_entry, cutoff)
+        if removed:
+            _LOGGER.info(
+                "Automatically removed %s delivered shipment(s) older than %s day(s)",
+                len(removed),
+                self.options.auto_remove_delivered_days,
+            )
 
     async def _async_throttle(self) -> None:
         """Keep at least ``min_seconds_between_calls`` between API calls."""
@@ -724,14 +841,21 @@ class DhlUpdateCoordinator(DataUpdateCoordinator[dict[str, ShipmentState]]):
         status_block = data.get("status") or {}
         new_status = status_block.get("status")
         new_status_code = status_block.get("statusCode")
+        new_effective = derive_status_code(data, dt_util.utcnow())
 
         old_status = state.status
         old_status_code = state.status_code
+        old_effective = state.effective_status_code
 
         state.status = new_status
         state.status_code = new_status_code
+        state.effective_status_code = new_effective
 
-        if (old_status, old_status_code) == (new_status, new_status_code):
+        if (old_status, old_status_code, old_effective) == (
+            new_status,
+            new_status_code,
+            new_effective,
+        ):
             return
 
         first_result = old_status is None and old_status_code is None
@@ -741,16 +865,21 @@ class DhlUpdateCoordinator(DataUpdateCoordinator[dict[str, ShipmentState]]):
             return
         self._announce_first_status.discard(state.tracking_number)
 
-        self.hass.bus.async_fire(
-            EVENT_STATUS_CHANGED,
-            {
-                **_shipment_event_data(state.shipment),
-                "old_status": old_status,
-                "new_status": new_status,
-                "old_status_code": old_status_code,
-                "new_status_code": new_status_code,
-            },
-        )
+        payload = {
+            **_shipment_event_data(state.shipment),
+            "old_status": old_status,
+            "new_status": new_status,
+            # Effective codes, so `out_for_delivery` shows up here as well.
+            "old_status_code": old_effective,
+            "new_status_code": new_effective,
+            # The unmodified API values, for anything that needs them.
+            "old_status_code_api": old_status_code,
+            "new_status_code_api": new_status_code,
+            "description": status_block.get("description"),
+        }
+        self.hass.bus.async_fire(EVENT_STATUS_CHANGED, payload)
+        for listener in list(self._status_listeners):
+            listener(state, payload)
 
 
 def _shipment_event_data(shipment: Shipment) -> dict[str, Any]:
