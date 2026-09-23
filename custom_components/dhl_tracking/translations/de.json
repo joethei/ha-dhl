@@ -1,0 +1,291 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "DHL Tracking einrichten",
+        "description": "Gib deinen DHL-API-Schlüssel aus dem DHL Developer Portal ein. Sendungsnummern sind optional - du kannst sie später jederzeit über die Integrationsoptionen oder die Aktion dhl_tracking.add_shipment hinzufügen und entfernen.",
+        "data": {
+          "api_key": "DHL API-Schlüssel",
+          "tracking_numbers": "Sendungsnummern (durch Komma getrennt, optional)"
+        },
+        "data_description": {
+          "api_key": "Erstelle auf developer.dhl.com eine App für die API \"Shipment Tracking - Unified\".",
+          "tracking_numbers": "Eine Nummer pro Zeile oder durch Kommas getrennt."
+        }
+      },
+      "reauth_confirm": {
+        "title": "DHL Tracking neu authentifizieren",
+        "description": "Die DHL-API hat den gespeicherten API-Schlüssel abgelehnt. Gib einen gültigen Schlüssel ein.",
+        "data": {
+          "api_key": "DHL API-Schlüssel"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Die DHL-API ist nicht erreichbar. Bitte später erneut versuchen.",
+      "invalid_auth": "Die DHL-API hat diesen API-Schlüssel abgelehnt.",
+      "rate_limited": "Das Anfragelimit der DHL-API ist derzeit erschöpft. Bitte später erneut versuchen.",
+      "invalid_tracking_number": "Mindestens eine Sendungsnummer hat ein ungültiges Format.",
+      "empty_tracking_number": "Eine Sendungsnummer darf nicht leer sein.",
+      "unknown": "Unerwarteter Fehler. Details stehen im Home-Assistant-Protokoll."
+    },
+    "abort": {
+      "already_configured": "Dieser DHL-API-Schlüssel ist bereits konfiguriert.",
+      "reauth_successful": "Der API-Schlüssel wurde aktualisiert."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "DHL Tracking",
+        "description": "Verwalte die verfolgten Sendungen und das Abfrageverhalten.",
+        "menu_options": {
+          "add_shipment": "Sendung hinzufügen",
+          "edit_shipment": "Sendung bearbeiten",
+          "remove_shipment": "Sendungen entfernen",
+          "settings": "Abfrage-Einstellungen"
+        }
+      },
+      "add_shipment": {
+        "title": "Sendung hinzufügen",
+        "description": "Leerzeichen in der Sendungsnummer werden automatisch entfernt.",
+        "data": {
+          "tracking_number": "Sendungsnummer",
+          "name": "Anzeigename (optional)",
+          "recipient_postal_code": "Empfänger-Postleitzahl (optional)"
+        },
+        "data_description": {
+          "name": "Wird als Gerätename der Sendung verwendet und kann später geändert werden, ohne neue Entities zu erzeugen.",
+          "recipient_postal_code": "Von DHL für den vollen Datenumfang bei parcel-de- und parcel-nl-Sendungen benötigt."
+        }
+      },
+      "edit_shipment": {
+        "title": "Sendung bearbeiten",
+        "description": "Wähle die Sendung aus, die bearbeitet werden soll.",
+        "data": {
+          "selected": "Sendung"
+        }
+      },
+      "edit_details": {
+        "title": "Sendung bearbeiten",
+        "description": "Bearbeitung von {tracking_number}. Die Sendungsnummer selbst kann nicht geändert werden - entferne die Sendung und füge sie neu hinzu.",
+        "data": {
+          "name": "Anzeigename (optional)",
+          "recipient_postal_code": "Empfänger-Postleitzahl (optional)"
+        }
+      },
+      "remove_shipment": {
+        "title": "Sendungen entfernen",
+        "description": "Die ausgewählten Sendungen und alle zugehörigen Entities werden entfernt.",
+        "data": {
+          "selected": "Sendungen"
+        }
+      },
+      "settings": {
+        "title": "Abfrage-Einstellungen",
+        "description": "Der DHL-Entwicklertarif erlaubt rund 250 API-Aufrufe pro Tag und es gibt keine Sammelabfrage - jede Sendung kostet also einen Aufruf pro Abfrage. Die Integration fragt nie häufiger ab, als das Tagesbudget erlaubt, selbst wenn hier ein kürzeres Intervall eingestellt ist.",
+        "data": {
+          "scan_interval": "Abfrageintervall für aktive Sendungen",
+          "language": "Sprache der API-Antwort",
+          "poll_delivered": "Zugestellte Sendungen weiter abfragen (einmal täglich)"
+        },
+        "data_description": {
+          "scan_interval": "Mindestens 5 Minuten. Bei mehreren Sendungen wird das effektive Intervall automatisch gestreckt, um im Tagesbudget zu bleiben.",
+          "poll_delivered": "Deaktivieren, um für bereits zugestellte Sendungen keine API-Aufrufe mehr zu verbrauchen."
+        }
+      }
+    },
+    "error": {
+      "invalid_tracking_number": "Diese Sendungsnummer hat ein ungültiges Format.",
+      "empty_tracking_number": "Die Sendungsnummer darf nicht leer sein.",
+      "invalid_name": "Der Anzeigename ist zu lang oder ungültig.",
+      "invalid_postal_code": "Die Postleitzahl hat ein ungültiges Format.",
+      "already_tracked": "Diese Sendungsnummer wird bereits verfolgt."
+    },
+    "abort": {
+      "no_shipments": "Es sind noch keine Sendungen konfiguriert."
+    }
+  },
+  "selector": {
+    "language": {
+      "options": {
+        "de": "Deutsch",
+        "en": "Englisch",
+        "fr": "Französisch",
+        "es": "Spanisch",
+        "it": "Italienisch",
+        "nl": "Niederländisch",
+        "pl": "Polnisch",
+        "cs": "Tschechisch"
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "status": {
+        "name": "Status"
+      },
+      "status_code": {
+        "name": "Statuscode",
+        "state": {
+          "delivered": "Zugestellt",
+          "failure": "Fehlgeschlagen",
+          "pre-transit": "Angekündigt",
+          "transit": "Unterwegs",
+          "unknown": "Unbekannt"
+        }
+      },
+      "status_timestamp": {
+        "name": "Status-Zeitstempel"
+      },
+      "status_description": {
+        "name": "Statusbeschreibung"
+      },
+      "status_location": {
+        "name": "Status-Standort"
+      },
+      "service": {
+        "name": "Service"
+      },
+      "product_name": {
+        "name": "Produkt"
+      },
+      "total_pieces": {
+        "name": "Anzahl Stücke"
+      },
+      "weight_value": {
+        "name": "Gewicht"
+      },
+      "weight_unit": {
+        "name": "Gewichtseinheit"
+      },
+      "origin_country": {
+        "name": "Herkunftsland"
+      },
+      "origin_city": {
+        "name": "Herkunftsort"
+      },
+      "destination_country": {
+        "name": "Zielland"
+      },
+      "destination_city": {
+        "name": "Zielort"
+      },
+      "pickup_date": {
+        "name": "Abholdatum"
+      },
+      "estimated_delivery": {
+        "name": "Geplante Zustellung"
+      },
+      "service_url": {
+        "name": "Service-URL"
+      },
+      "return_flag": {
+        "name": "Rücksendung",
+        "state": {
+          "yes": "Ja",
+          "no": "Nein"
+        }
+      },
+      "api_requests_today": {
+        "name": "API-Anfragen heute"
+      }
+    }
+  },
+  "services": {
+    "add_shipment": {
+      "name": "Sendung hinzufügen",
+      "description": "Fügt zur Laufzeit eine Sendungsnummer hinzu. Die Sendung wird dauerhaft gespeichert und die Entities erscheinen ohne Neustart von Home Assistant.",
+      "fields": {
+        "tracking_number": {
+          "name": "Sendungsnummer",
+          "description": "Die DHL-Sendungsnummer. Leerzeichen werden automatisch entfernt."
+        },
+        "name": {
+          "name": "Anzeigename",
+          "description": "Optionaler Name für das Gerät der Sendung, zum Beispiel \"Ersatzteil\"."
+        },
+        "recipient_postal_code": {
+          "name": "Empfänger-Postleitzahl",
+          "description": "Optionale Postleitzahl der Lieferadresse. DHL benötigt sie für den vollen Datenumfang bei parcel-de- und parcel-nl-Sendungen."
+        },
+        "config_entry_id": {
+          "name": "Konfigurationseintrag",
+          "description": "Nur nötig, wenn mehr als ein DHL-Tracking-Eintrag konfiguriert ist."
+        }
+      }
+    },
+    "remove_shipment": {
+      "name": "Sendung entfernen",
+      "description": "Entfernt eine Sendungsnummer und alle zugehörigen Entities. Liefert eine verständliche Fehlermeldung, wenn die Nummer nicht verfolgt wird.",
+      "fields": {
+        "tracking_number": {
+          "name": "Sendungsnummer",
+          "description": "Die zu entfernende Sendungsnummer."
+        },
+        "config_entry_id": {
+          "name": "Konfigurationseintrag",
+          "description": "Nur nötig, wenn mehr als ein DHL-Tracking-Eintrag konfiguriert ist."
+        }
+      }
+    },
+    "remove_delivered_shipments": {
+      "name": "Zugestellte Sendungen entfernen",
+      "description": "Entfernt alle Sendungen, deren Zustellung mindestens die angegebene Anzahl von Tagen zurückliegt. Gibt die Liste der entfernten Sendungsnummern zurück.",
+      "fields": {
+        "older_than_days": {
+          "name": "Zustellung liegt mindestens so viele Tage zurück",
+          "description": "0 entfernt jede zugestellte Sendung sofort."
+        },
+        "config_entry_id": {
+          "name": "Konfigurationseintrag",
+          "description": "Nur nötig, wenn mehr als ein DHL-Tracking-Eintrag konfiguriert ist."
+        }
+      }
+    }
+  },
+  "exceptions": {
+    "empty_tracking_number": {
+      "message": "Die Sendungsnummer darf nicht leer sein."
+    },
+    "invalid_tracking_number": {
+      "message": "Die Sendungsnummer hat ein ungültiges Format. Erwartet werden 4 bis 39 Buchstaben, Ziffern oder Bindestriche."
+    },
+    "invalid_name": {
+      "message": "Der Anzeigename ist ungültig oder länger als 100 Zeichen."
+    },
+    "invalid_postal_code": {
+      "message": "Die Empfänger-Postleitzahl hat ein ungültiges Format."
+    },
+    "already_tracked": {
+      "message": "Die Sendungsnummer {tracking_number} wird bereits verfolgt."
+    },
+    "not_tracked": {
+      "message": "Die Sendungsnummer {tracking_number} wird nicht verfolgt."
+    },
+    "no_config_entry": {
+      "message": "Es wurde kein geladener DHL-Tracking-Konfigurationseintrag gefunden."
+    },
+    "multiple_config_entries": {
+      "message": "Es sind mehrere DHL-Tracking-Konfigurationseinträge eingerichtet. Bitte config_entry_id angeben."
+    },
+    "invalid_config_entry": {
+      "message": "Es wurde kein geladener DHL-Tracking-Konfigurationseintrag mit der ID {config_entry_id} gefunden."
+    },
+    "invalid_auth": {
+      "message": "Die DHL-API hat den API-Schlüssel abgelehnt."
+    },
+    "cannot_connect": {
+      "message": "Die DHL-API ist nicht erreichbar."
+    },
+    "rate_limited": {
+      "message": "Das Anfragelimit der DHL-API wurde überschritten."
+    },
+    "shipment_not_found": {
+      "message": "DHL kennt keine Sendung mit der Sendungsnummer {tracking_number}."
+    },
+    "api_error": {
+      "message": "Die DHL-API hat eine unerwartete Antwort geliefert (HTTP {status})."
+    }
+  }
+}
