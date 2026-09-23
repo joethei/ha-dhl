@@ -79,6 +79,32 @@ STATUS_CODES: Final = (
     STATUS_CODE_UNKNOWN,
 )
 
+# --- Poll priority -----------------------------------------------------------
+# The API has no "out for delivery" status: `StatusCode` is documented as a
+# "high-level grouping" with exactly the five values above, and the detailed
+# fields (`status`, `statusDetailed`, `description`, `remark`, `nextSteps`) are
+# free text in the language requested via the `language` parameter. Matching on
+# them would break as soon as the user changes that language.
+#
+# The delivery forecast is the only structured, language independent signal, so
+# imminence is derived from `estimatedDeliveryTimeFrame` and
+# `estimatedTimeOfDelivery` instead.
+DELIVERY_IMMINENT_LEAD_HOURS: Final = 8
+# A shipment whose forecast has passed but that is not delivered yet is
+# probably out for delivery and running late - keep it on the fast lane.
+DELIVERY_OVERDUE_GRACE_HOURS: Final = 24
+
+# Relative share of the daily request budget per priority. Only the ratios
+# matter; a shipment with twice the weight is polled twice as often.
+PRIORITY_WEIGHT_IMMINENT: Final = 6
+PRIORITY_WEIGHT_TRANSIT: Final = 2
+PRIORITY_WEIGHT_PRE_TRANSIT: Final = 1
+
+# Per-priority floor, relative to the configured scan interval. A shipment is
+# never polled more often than its floor allows, even if budget is left over.
+IMMINENT_INTERVAL_DIVISOR: Final = 3
+PRE_TRANSIT_INTERVAL_FACTOR: Final = 2
+
 # --- Services ---------------------------------------------------------------
 SERVICE_ADD_SHIPMENT: Final = "add_shipment"
 SERVICE_REMOVE_SHIPMENT: Final = "remove_shipment"

@@ -33,4 +33,5 @@ async def test_diagnostics_redact_credentials_and_personal_data(
     # The parts that are actually useful for debugging survive.
     assert diagnostics["shipments"][0]["status_code"] == "transit"
     assert diagnostics["budget"]["count"] == 1
-    assert diagnostics["scheduling"]["active_shipments"] == 1
+    assert diagnostics["scheduling"]["priority_counts"]["transit"] == 1
+    assert diagnostics["shipments"][0]["priority"] == "transit"

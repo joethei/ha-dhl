@@ -38,9 +38,20 @@ from .const import (
 from .coordinator import (
     DhlUpdateCoordinator,
     ShipmentDiff,
+    ShipmentPriority,
     ShipmentState,
     parse_api_datetime,
 )
+
+
+def _minutes(coordinator: DhlUpdateCoordinator, priority: ShipmentPriority) -> int:
+    """Return the effective poll interval of a priority, in whole minutes."""
+    interval = max(
+        coordinator.priority_floor(priority),
+        coordinator.fair_share_interval(priority),
+    )
+    return round(interval.total_seconds() / 60)
+
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -435,14 +446,22 @@ class DhlApiUsageSensor(CoordinatorEntity[DhlUpdateCoordinator], SensorEntity):
         """Return details about the request budget."""
         coordinator = self.coordinator
         backoff = coordinator.budget.backoff_until
+        counts = coordinator.priority_counts()
         return {
             "daily_budget": coordinator.budget.daily_budget,
             "remaining_today": coordinator.budget.remaining,
             "tracked_shipments": len(coordinator.states),
             "active_shipments": coordinator.active_count(),
             "delivered_shipments": coordinator.delivered_count(),
-            "effective_interval_minutes": round(
-                coordinator.fair_share_interval().total_seconds() / 60
+            "imminent_shipments": counts[ShipmentPriority.IMMINENT],
+            "transit_shipments": counts[ShipmentPriority.TRANSIT],
+            "pre_transit_shipments": counts[ShipmentPriority.PRE_TRANSIT],
+            "interval_minutes_imminent": _minutes(
+                coordinator, ShipmentPriority.IMMINENT
+            ),
+            "interval_minutes_transit": _minutes(coordinator, ShipmentPriority.TRANSIT),
+            "interval_minutes_pre_transit": _minutes(
+                coordinator, ShipmentPriority.PRE_TRANSIT
             ),
             "estimated_requests_per_day": round(
                 coordinator.estimated_daily_requests(), 1

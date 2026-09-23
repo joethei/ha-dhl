@@ -17,6 +17,7 @@ Assistant noch eine Neueingabe des API-Schlüssels ist nötig.
 - 📅 Ereignisse `dhl_tracking_shipment_added`, `dhl_tracking_shipment_removed`,
   `dhl_tracking_status_changed` für Automatisierungen
 - ⏱️ Adaptives Polling mit hartem Tagesbudget, damit das DHL-Kontingent nicht reißt
+- 🚚 Pakete in Zustellung werden dreimal so oft abgefragt wie normal unterwegs befindliche
 - 🔁 Exponentielles Backoff bei HTTP 429, keine aggressiven Retries
 - 🌍 Deutsche und englische Übersetzungen
 - 🔐 API-Schlüssel wird niemals geloggt; Diagnosedaten sind redigiert
@@ -271,7 +272,9 @@ Versionen unverändert – vorhandene Entity-IDs bleiben also erhalten.
 
 Zusätzlich existiert pro Konfigurationseintrag ein Dienst-Gerät „DHL Tracking"
 mit dem Diagnosesensor **API-Anfragen heute**. Dessen Attribute zeigen das
-Tagesbudget, das effektive Intervall und den geschätzten Tagesverbrauch.
+Tagesbudget, den geschätzten Tagesverbrauch, die Anzahl Sendungen je Priorität
+(`imminent_shipments`, `transit_shipments`, `pre_transit_shipments`) und das
+daraus resultierende Intervall je Priorität (`interval_minutes_imminent` usw.).
 
 Der Sensor **Status** trägt zusätzlich das Attribut `events` mit den letzten
 zehn Sendungsereignissen (Zeitstempel, Status, Beschreibung, Ort auf
@@ -289,6 +292,42 @@ OpenAPI-Spezifikation 1.5.6 (siehe
 genau **eine** `trackingNumber` pro Request. Jede Sendung kostet also einen
 Aufruf pro Abfrage. Batch-Abfragen sind daher nicht implementiert.
 
+### Priorität: Pakete in Zustellung werden häufiger abgefragt
+
+Nicht jede Sendung braucht dieselbe Aufmerksamkeit. Ein Paket, das heute noch
+kommen soll, ändert seinen Status im Stundentakt; eines, das der Absender
+gerade erst angekündigt hat, tagelang gar nicht. Die Integration verteilt das
+Tagesbudget deshalb **gewichtet**:
+
+| Priorität | Bedingung | Gewicht | Untergrenze |
+|---|---|---:|---|
+| **in Zustellung** | Zustellprognose läuft gerade, steht in ≤ 8 h an oder ist ≤ 24 h überfällig | 6 | Intervall ÷ 3 |
+| **unterwegs** | `statusCode` = `transit`, `failure` oder `unknown` | 2 | Intervall |
+| **angekündigt** | `statusCode` = `pre-transit` | 1 | Intervall × 2 |
+| **zugestellt** | `statusCode` = `delivered` | – | 24 h bzw. nie |
+
+Eine Sendung in Zustellung wird also **dreimal so oft** abgefragt wie eine
+normal unterwegs befindliche und **sechsmal so oft** wie eine bloß angekündigte.
+
+#### Warum die Zustellprognose und nicht der Statustext?
+
+Die Unified-API kennt **keinen** Statuscode für „in Zustellung". `StatusCode`
+ist in der Spezifikation ausdrücklich als *„high-level grouping statuses"* mit
+genau fünf Werten definiert. Die feineren Felder – `status`, `statusDetailed`,
+`description`, `remark`, `nextSteps` – sind durchweg `type: string` **ohne
+Enum** und werden in der Sprache geliefert, die über den `language`-Parameter
+angefordert wird. Auf `"In Zustellung"` zu matchen würde also brechen, sobald
+jemand die Sprache auf Englisch umstellt.
+
+Strukturiert und sprachunabhängig sind nur `estimatedTimeOfDelivery` und
+`estimatedDeliveryTimeFrame`. Genau diese beiden Felder bestimmen die
+Priorität. Eine Sendung ohne Prognose bleibt schlicht auf „unterwegs" – sie
+wird nie schlechter behandelt als vorher.
+
+Die Kulanz von 24 Stunden nach dem Prognosezeitpunkt ist Absicht: Wenn die
+Zustellung angekündigt war und *nicht* stattgefunden hat, ist das genau der
+Moment, in dem man häufige Updates will.
+
 ### Berechnung des Tagesverbrauchs
 
 Die Integration arbeitet mit einem eigenen Budget von **200 Aufrufen pro Tag**
@@ -296,33 +335,40 @@ Die Integration arbeitet mit einem eigenen Budget von **200 Aufrufen pro Tag**
 Aktualisierungen nie das Limit sprengen).
 
 ```
-aktive Sendungen      A = Sendungen mit statusCode != "delivered"
-zugestellte Sendungen Z = Sendungen mit statusCode == "delivered"
+Z = zugestellte Sendungen         → je 1 Aufruf/Tag (oder 0, wenn abgeschaltet)
+B = max(1, 200 − Z)                 Budget für alles, was noch unterwegs ist
+W = Σ Gewicht aller nicht zugestellten Sendungen
 
-Budget für aktive Sendungen:  B = max(A, 200 − Z)
-Aufrufe je aktiver Sendung:   C = B / A        (pro Tag)
-Fair-Share-Intervall:         F = 86400 / C    (Sekunden)
+Aufrufe je Sendung s pro Tag:  C(s) = B · Gewicht(s) / W
+Fair-Share-Intervall:          F(s) = 86400 / C(s)          [Sekunden]
 
-effektives Intervall (aktiv):      max(eingestelltes Intervall, F)
-effektives Intervall (zugestellt): 24 h  bzw. „nie", wenn abgeschaltet
+effektives Intervall = max(Untergrenze der Priorität, F(s))
 ```
 
-Mit dem Standardintervall von 30 Minuten ergibt sich:
+Da Σ C(s) = B gilt, ist der geplante Tagesverbrauch **per Konstruktion**
+höchstens `B + Z = 200`. Sind alle Sendungen gleich priorisiert, reduziert sich
+die Formel auf eine gleichmäßige Aufteilung – das Verhalten ohne
+Zustellprognose ist also unverändert.
 
-| Aktive Sendungen | Fair-Share-Intervall | Effektives Intervall | Aufrufe/Tag |
-|---:|---:|---:|---:|
-| 1 | 7,2 min | 30 min | 48 |
-| 2 | 14,4 min | 30 min | 96 |
-| 4 | 28,8 min | 30 min | 192 |
-| 5 | 36 min | 36 min | 200 |
-| 10 | 72 min | 72 min | 200 |
-| 20 | 144 min | 144 min | 200 |
+Mit dem Standardintervall von 30 Minuten:
 
-**Der Tagesverbrauch übersteigt 200 Aufrufe nie**, unabhängig von der Anzahl der
-Sendungen: Ab fünf aktiven Sendungen begrenzt das Fair-Share-Intervall die
-Abfragen. Zusätzlich zählt ein harter Zähler mit und bricht den Abfragezyklus
-ab, sobald das Budget erschöpft ist. Zugestellte Sendungen kosten höchstens
-einen Aufruf pro Tag und können über die Optionen ganz abgeschaltet werden.
+| Szenario | effektives Intervall | Aufrufe/Tag |
+|---|---|---:|
+| 1× unterwegs | 30 min | 48 |
+| 4× unterwegs | 30 min | 192 |
+| 5× unterwegs | 36 min | 200 |
+| 20× unterwegs | 144 min | 200 |
+| 1× **in Zustellung** | 10 min | 144 |
+| 1× in Zustellung + 4× unterwegs | 16,8 min / 50,4 min | 200 |
+| 2× in Zustellung + 8× unterwegs | 33,6 min / 100,8 min | 200 |
+| 1× in Zustellung + 5× unterwegs + 4× angekündigt | 24 / 72 / 144 min | 200 |
+| 3× unterwegs + 20× zugestellt | 30 min + 1×/Tag | 164 |
+
+**Der geplante Tagesverbrauch übersteigt 200 Aufrufe nie** – auch nicht bei 260
+Sendungen; dann wächst das Intervall entsprechend, statt das Budget zu
+überziehen. Ein harter Zähler bricht den Abfragezyklus zusätzlich ab, sobald
+das Budget erschöpft ist, und die Warteschlange ist nach Priorität sortiert:
+Sendungen in Zustellung werden zuerst bedient, zugestellte zuletzt.
 
 Weitere Schutzmechanismen:
 
@@ -437,6 +483,7 @@ Entwickler-API-Schlüssel.
 | Entities sind `unavailable` | DHL kennt die Nummer (noch) nicht. Frisch aufgegebene Sendungen erscheinen oft erst nach einigen Stunden. |
 | Reauth-Hinweis in der Oberfläche | Der API-Schlüssel wurde abgelehnt. Neuen Schlüssel über den Reauth-Dialog eintragen. |
 | Sensor „API-Anfragen heute" bei 200 | Das Tagesbudget ist erschöpft. Intervall verlängern oder zugestellte Sendungen entfernen. |
+| Paket in Zustellung wird nicht häufiger abgefragt | DHL liefert für diese Sendung keine `estimatedTimeOfDelivery`. Ohne Prognose bleibt sie auf „unterwegs“ – nachprüfbar über das Attribut `imminent_shipments`. |
 | Unvollständige Daten bei DHL-Paket (Deutschland) | Empfänger-PLZ ergänzen – DHL liefert den vollen Datensatz für `parcel-de` nur mit `recipientPostalCode`. |
 
 Für Fehlerberichte bitte die **Diagnosedaten** des Eintrags herunterladen

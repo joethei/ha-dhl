@@ -7,8 +7,10 @@ from typing import Any
 from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.util import dt as dt_util
 
 from .const import CONF_API_KEY, CONF_RECIPIENT_POSTAL_CODE
+from .coordinator import PRIORITY_WEIGHTS
 
 # The API key is a credential; the remaining keys carry the recipient's
 # personal data (names, street addresses, signatures) which is never needed to
@@ -47,11 +49,17 @@ async def async_get_config_entry_diagnostics(
             "scheduling": {
                 "scan_interval": coordinator.options.scan_interval,
                 "poll_delivered": coordinator.options.poll_delivered,
-                "active_shipments": coordinator.active_count(),
-                "delivered_shipments": coordinator.delivered_count(),
-                "fair_share_interval_seconds": (
-                    coordinator.fair_share_interval().total_seconds()
-                ),
+                "priority_counts": coordinator.priority_counts(),
+                "fair_share_interval_seconds": {
+                    priority.value: coordinator.fair_share_interval(
+                        priority
+                    ).total_seconds()
+                    for priority in PRIORITY_WEIGHTS
+                },
+                "priority_floor_seconds": {
+                    priority.value: coordinator.priority_floor(priority).total_seconds()
+                    for priority in PRIORITY_WEIGHTS
+                },
                 "estimated_requests_per_day": coordinator.estimated_daily_requests(),
             },
             "shipments": [
@@ -68,6 +76,7 @@ async def async_get_config_entry_diagnostics(
                     "error": state.error,
                     "status": state.status,
                     "status_code": state.status_code,
+                    "priority": state.priority(dt_util.utcnow()).value,
                     "data": state.data,
                 }
                 for state in coordinator.states.values()

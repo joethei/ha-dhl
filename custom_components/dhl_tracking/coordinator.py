@@ -30,6 +30,7 @@ import asyncio
 from collections.abc import Callable, Coroutine, Iterable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from enum import StrEnum
 import logging
 from typing import Any
 
@@ -51,13 +52,22 @@ from .const import (
     API_MIN_SECONDS_BETWEEN_CALLS,
     DAILY_REQUEST_BUDGET,
     DELIVERED_SCAN_INTERVAL,
+    DELIVERY_IMMINENT_LEAD_HOURS,
+    DELIVERY_OVERDUE_GRACE_HOURS,
     DOMAIN,
     EVENT_SHIPMENT_ADDED,
     EVENT_SHIPMENT_REMOVED,
     EVENT_STATUS_CHANGED,
+    IMMINENT_INTERVAL_DIVISOR,
+    MIN_SCAN_INTERVAL,
+    PRE_TRANSIT_INTERVAL_FACTOR,
+    PRIORITY_WEIGHT_IMMINENT,
+    PRIORITY_WEIGHT_PRE_TRANSIT,
+    PRIORITY_WEIGHT_TRANSIT,
     RATE_LIMIT_BACKOFF_MAX,
     RATE_LIMIT_BACKOFF_START,
     STATUS_CODE_DELIVERED,
+    STATUS_CODE_PRE_TRANSIT,
 )
 from .models import DhlOptions, Shipment
 from .store import DhlStateStore
@@ -65,6 +75,39 @@ from .store import DhlStateStore
 _LOGGER = logging.getLogger(__name__)
 
 SECONDS_PER_DAY = 86400
+
+
+class ShipmentPriority(StrEnum):
+    """How urgently a shipment needs fresh data."""
+
+    IMMINENT = "imminent"
+    """Delivery is forecast for right now, or was forecast and has not
+    happened yet - this is as close to "out for delivery" as the official API
+    allows us to get."""
+
+    TRANSIT = "transit"
+    """On its way, but no imminent delivery forecast."""
+
+    PRE_TRANSIT = "pre_transit"
+    """Announced by the sender, not picked up yet. Changes rarely."""
+
+    DELIVERED = "delivered"
+    """Done. Polled once a day at most, or not at all."""
+
+
+PRIORITY_WEIGHTS: dict[ShipmentPriority, int] = {
+    ShipmentPriority.IMMINENT: PRIORITY_WEIGHT_IMMINENT,
+    ShipmentPriority.TRANSIT: PRIORITY_WEIGHT_TRANSIT,
+    ShipmentPriority.PRE_TRANSIT: PRIORITY_WEIGHT_PRE_TRANSIT,
+}
+
+# Order used when the request budget is not enough for everything that is due.
+PRIORITY_ORDER: dict[ShipmentPriority, int] = {
+    ShipmentPriority.IMMINENT: 0,
+    ShipmentPriority.TRANSIT: 1,
+    ShipmentPriority.PRE_TRANSIT: 2,
+    ShipmentPriority.DELIVERED: 3,
+}
 
 
 @dataclass(slots=True)
@@ -100,6 +143,43 @@ class ShipmentState:
         if not self.delivered or not self.data:
             return None
         return parse_api_datetime((self.data.get("status") or {}).get("timestamp"))
+
+    def priority(self, now: datetime) -> ShipmentPriority:
+        """Return how urgently this shipment needs fresh data."""
+        if self.delivered:
+            return ShipmentPriority.DELIVERED
+        if self.delivery_imminent(now):
+            return ShipmentPriority.IMMINENT
+        if self.status_code == STATUS_CODE_PRE_TRANSIT:
+            return ShipmentPriority.PRE_TRANSIT
+        return ShipmentPriority.TRANSIT
+
+    def delivery_imminent(self, now: datetime) -> bool:
+        """Return whether DHL forecasts the delivery for right about now.
+
+        Uses only the structured forecast fields of the official API. The
+        textual status fields are localized free text and deliberately not
+        matched against.
+        """
+        if not self.data:
+            return False
+
+        lead = timedelta(hours=DELIVERY_IMMINENT_LEAD_HOURS)
+        grace = timedelta(hours=DELIVERY_OVERDUE_GRACE_HOURS)
+
+        frame = self.data.get("estimatedDeliveryTimeFrame") or {}
+        start = parse_api_datetime(frame.get("estimatedFrom"))
+        end = parse_api_datetime(frame.get("estimatedThrough"))
+        # Inside the delivery window, close enough to its start, or overdue.
+        if (
+            end is not None
+            and now <= end + grace
+            and (start is None or now >= start - lead)
+        ):
+            return True
+
+        eta = parse_api_datetime(self.data.get("estimatedTimeOfDelivery"))
+        return eta is not None and eta - lead <= now <= eta + grace
 
 
 @dataclass(slots=True)
@@ -396,37 +476,102 @@ class DhlUpdateCoordinator(DataUpdateCoordinator[dict[str, ShipmentState]]):
 
     # -- polling -------------------------------------------------------------
 
-    def active_count(self) -> int:
-        """Return the number of shipments that are still in transit."""
+    def priority_counts(self, now: datetime | None = None) -> dict[str, int]:
+        """Return the number of shipments per priority."""
+        now = now or dt_util.utcnow()
+        counts = dict.fromkeys(ShipmentPriority, 0)
+        for state in self.states.values():
+            counts[state.priority(now)] += 1
+        return {priority.value: count for priority, count in counts.items()}
+
+    def active_count(self, now: datetime | None = None) -> int:
+        """Return the number of shipments that are not delivered yet."""
         return sum(1 for state in self.states.values() if not state.delivered)
 
     def delivered_count(self) -> int:
         """Return the number of delivered shipments."""
         return sum(1 for state in self.states.values() if state.delivered)
 
-    def fair_share_interval(self) -> timedelta:
-        """Return the minimum interval per active shipment for the budget."""
-        active = max(1, self.active_count())
-        delivered_calls = self.delivered_count() if self.options.poll_delivered else 0
-        active_budget = max(active, self.budget.daily_budget - delivered_calls)
-        calls_per_shipment = active_budget / active
-        return timedelta(seconds=SECONDS_PER_DAY / calls_per_shipment)
+    def _total_weight(self, now: datetime) -> int:
+        """Return the summed priority weight of all shipments still moving."""
+        return sum(
+            PRIORITY_WEIGHTS[state.priority(now)]
+            for state in self.states.values()
+            if not state.delivered
+        )
 
-    def effective_interval(self, state: ShipmentState) -> timedelta | None:
+    def _active_budget(self, now: datetime) -> int:
+        """Return the daily requests available for shipments still moving.
+
+        Delivered shipments are billed first at one call per day; whatever is
+        left goes to the shipments that are still moving. The result is never
+        below one, so a single active shipment is always polled.
+        """
+        delivered_calls = self.delivered_count() if self.options.poll_delivered else 0
+        return max(1, self.budget.daily_budget - delivered_calls)
+
+    def fair_share_interval(
+        self,
+        priority: ShipmentPriority = ShipmentPriority.TRANSIT,
+        now: datetime | None = None,
+    ) -> timedelta:
+        """Return the budget derived interval for one priority.
+
+        The daily budget is split across the shipments still moving in
+        proportion to their priority weight::
+
+            calls per day = active_budget * weight / total_weight
+
+        With a single priority in play this reduces to an even split, so the
+        behaviour is unchanged when nothing is forecast for delivery.
+        """
+        now = now or dt_util.utcnow()
+        total_weight = self._total_weight(now)
+        if total_weight == 0:
+            return timedelta(seconds=DELIVERED_SCAN_INTERVAL)
+        weight = PRIORITY_WEIGHTS[priority]
+        calls_per_day = self._active_budget(now) * weight / total_weight
+        return timedelta(seconds=SECONDS_PER_DAY / calls_per_day)
+
+    def priority_floor(self, priority: ShipmentPriority) -> timedelta:
+        """Return the shortest interval allowed for a priority."""
+        scan_interval = self.options.scan_interval
+        if priority is ShipmentPriority.IMMINENT:
+            seconds = max(MIN_SCAN_INTERVAL, scan_interval // IMMINENT_INTERVAL_DIVISOR)
+        elif priority is ShipmentPriority.PRE_TRANSIT:
+            seconds = scan_interval * PRE_TRANSIT_INTERVAL_FACTOR
+        else:
+            seconds = scan_interval
+        return timedelta(seconds=seconds)
+
+    def effective_interval(
+        self, state: ShipmentState, now: datetime | None = None
+    ) -> timedelta | None:
         """Return the poll interval for a shipment, or ``None`` to never poll."""
-        if state.delivered:
+        now = now or dt_util.utcnow()
+        priority = state.priority(now)
+        if priority is ShipmentPriority.DELIVERED:
             if not self.options.poll_delivered:
                 return None
             return timedelta(seconds=DELIVERED_SCAN_INTERVAL)
         return max(
-            timedelta(seconds=self.options.scan_interval), self.fair_share_interval()
+            self.priority_floor(priority),
+            self.fair_share_interval(priority, now),
         )
 
-    def estimated_daily_requests(self) -> float:
-        """Return the estimated number of API requests consumed per day."""
+    def estimated_daily_requests(self, now: datetime | None = None) -> float:
+        """Return the scheduled number of API requests per day.
+
+        This is the demand of the current schedule. It stays within the daily
+        budget for any realistic number of shipments; should it ever exceed it
+        (more tracked shipments than the budget has calls), the hard counter in
+        :class:`RequestBudget` rations the requests and the priority order
+        decides who is served first.
+        """
+        now = now or dt_util.utcnow()
         total = 0.0
         for state in self.states.values():
-            if (interval := self.effective_interval(state)) is None:
+            if (interval := self.effective_interval(state, now)) is None:
                 continue
             total += SECONDS_PER_DAY / interval.total_seconds()
         return total
@@ -435,16 +580,17 @@ class DhlUpdateCoordinator(DataUpdateCoordinator[dict[str, ShipmentState]]):
         """Return the shipments that should be polled now, highest priority first."""
         due: list[ShipmentState] = []
         for state in self.states.values():
-            interval = self.effective_interval(state)
+            interval = self.effective_interval(state, now)
             if interval is None:
                 continue
             if state.last_polled is None or now - state.last_polled >= interval:
                 due.append(state)
 
-        # Active shipments first, then the least recently polled ones.
+        # Imminent deliveries first, delivered shipments last; within one
+        # priority the least recently polled shipment wins.
         due.sort(
             key=lambda s: (
-                s.delivered,
+                PRIORITY_ORDER[s.priority(now)],
                 s.last_polled or datetime.min.replace(tzinfo=dt_util.UTC),
             )
         )

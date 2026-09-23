@@ -29,7 +29,10 @@ from custom_components.dhl_tracking.const import (
     RATE_LIMIT_BACKOFF_START,
     SERVICE_ADD_SHIPMENT,
 )
-from custom_components.dhl_tracking.coordinator import RequestBudget
+from custom_components.dhl_tracking.coordinator import (
+    RequestBudget,
+    ShipmentPriority,
+)
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
@@ -39,6 +42,16 @@ from .const import OTHER_TRACKING_NUMBER, TRACKING_NUMBER, shipment_payload
 
 # Tolerance for the floating point fair-share arithmetic.
 EPSILON = 1e-6
+
+# Delivery forecasts relative to "now", used to drive the priority tiers.
+_NOW = dt_util.utcnow()
+_ISO_IN_2H = (_NOW + timedelta(hours=2)).isoformat()
+_ISO_IN_3D = (_NOW + timedelta(days=3)).isoformat()
+_ISO_IN_7D = (_NOW + timedelta(days=7)).isoformat()
+_ISO_IN_8D = (_NOW + timedelta(days=8)).isoformat()
+_ISO_1H_AGO = (_NOW - timedelta(hours=1)).isoformat()
+_ISO_2H_AGO = (_NOW - timedelta(hours=2)).isoformat()
+_ISO_5D_AGO = (_NOW - timedelta(days=5)).isoformat()
 
 
 async def advance(
@@ -467,3 +480,228 @@ async def test_requests_are_spaced_apart(
     # for the gap to the first one.
     assert len(slept) == 2
     assert all(0 < delay <= 6 for delay in slept)
+
+
+# --- Priority based scheduling -----------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("payload_kwargs", "expected"),
+    [
+        # Forecast for in a few hours -> out for delivery territory.
+        ({"estimated_delivery": _ISO_IN_2H}, ShipmentPriority.IMMINENT),
+        # Forecast passed a few hours ago but still not delivered -> running late.
+        ({"estimated_delivery": _ISO_2H_AGO}, ShipmentPriority.IMMINENT),
+        # Forecast is days away -> ordinary transit.
+        ({"estimated_delivery": _ISO_IN_3D}, ShipmentPriority.TRANSIT),
+        # Forecast expired long ago -> stop treating it as imminent.
+        ({"estimated_delivery": _ISO_5D_AGO}, ShipmentPriority.TRANSIT),
+        # No forecast at all -> ordinary transit.
+        ({"estimated_delivery": None}, ShipmentPriority.TRANSIT),
+        # Announced but not picked up -> lowest priority.
+        (
+            {"estimated_delivery": None, "status_code": "pre-transit"},
+            ShipmentPriority.PRE_TRANSIT,
+        ),
+        # A delivery window that is open right now.
+        (
+            {
+                "estimated_delivery": None,
+                "delivery_time_frame": {
+                    "estimatedFrom": _ISO_1H_AGO,
+                    "estimatedThrough": _ISO_IN_2H,
+                },
+            },
+            ShipmentPriority.IMMINENT,
+        ),
+        # A delivery window that only opens next week.
+        (
+            {
+                "estimated_delivery": None,
+                "delivery_time_frame": {
+                    "estimatedFrom": _ISO_IN_7D,
+                    "estimatedThrough": _ISO_IN_8D,
+                },
+            },
+            ShipmentPriority.TRANSIT,
+        ),
+    ],
+)
+async def test_priority_is_derived_from_the_delivery_forecast(
+    hass: HomeAssistant,
+    mock_api: AsyncMock,
+    shipment_responses: dict,
+    payload_kwargs: dict,
+    expected: ShipmentPriority,
+) -> None:
+    """Priority comes from the structured forecast fields, not from status text."""
+    shipment_responses[TRACKING_NUMBER] = shipment_payload(
+        TRACKING_NUMBER, **payload_kwargs
+    )
+    entry = build_config_entry(shipments=[{"tracking_number": TRACKING_NUMBER}])
+    await setup_integration(hass, entry)
+
+    coordinator = entry.runtime_data.coordinator
+    assert coordinator.states[TRACKING_NUMBER].priority(dt_util.utcnow()) is expected
+
+
+async def test_localized_status_text_does_not_affect_priority(
+    hass: HomeAssistant, mock_api: AsyncMock, shipment_responses: dict
+) -> None:
+    """A German "In Zustellung" must not be matched as a magic string.
+
+    The API documents these fields as free text in the requested language, so
+    only the structured forecast may drive the schedule.
+    """
+    shipment_responses[TRACKING_NUMBER] = shipment_payload(
+        TRACKING_NUMBER, status="In Zustellung", estimated_delivery=_ISO_IN_3D
+    )
+    entry = build_config_entry(shipments=[{"tracking_number": TRACKING_NUMBER}])
+    await setup_integration(hass, entry)
+
+    coordinator = entry.runtime_data.coordinator
+    assert (
+        coordinator.states[TRACKING_NUMBER].priority(dt_util.utcnow())
+        is ShipmentPriority.TRANSIT
+    )
+
+
+async def test_imminent_shipment_is_polled_more_often(
+    hass: HomeAssistant, mock_api: AsyncMock, shipment_responses: dict
+) -> None:
+    """An imminent delivery gets a shorter interval than a plain transit one."""
+    shipment_responses[TRACKING_NUMBER] = shipment_payload(
+        TRACKING_NUMBER, estimated_delivery=_ISO_IN_2H
+    )
+    shipment_responses[OTHER_TRACKING_NUMBER] = shipment_payload(
+        OTHER_TRACKING_NUMBER, estimated_delivery=_ISO_IN_3D
+    )
+    entry = build_config_entry(
+        shipments=[
+            {"tracking_number": TRACKING_NUMBER},
+            {"tracking_number": OTHER_TRACKING_NUMBER},
+        ]
+    )
+    await setup_integration(hass, entry)
+
+    coordinator = entry.runtime_data.coordinator
+    now = dt_util.utcnow()
+    imminent = coordinator.effective_interval(coordinator.states[TRACKING_NUMBER], now)
+    transit = coordinator.effective_interval(
+        coordinator.states[OTHER_TRACKING_NUMBER], now
+    )
+
+    assert imminent < transit
+    # 6:2 weight ratio, floored at scan_interval / 3 for imminent shipments.
+    assert imminent == timedelta(seconds=coordinator.options.scan_interval // 3)
+    assert coordinator.estimated_daily_requests(now) <= DAILY_REQUEST_BUDGET + EPSILON
+
+
+async def test_imminent_shipments_are_served_first(
+    hass: HomeAssistant, mock_api: AsyncMock, shipment_responses: dict
+) -> None:
+    """When the budget runs out, imminent deliveries are polled first."""
+    numbers = [f"0034043422000000{i:04d}" for i in range(4)]
+    for index, number in enumerate(numbers):
+        shipment_responses[number] = shipment_payload(
+            number,
+            # Only the last one is out for delivery.
+            estimated_delivery=_ISO_IN_2H if index == 3 else _ISO_IN_3D,
+        )
+    entry = build_config_entry(
+        shipments=[{"tracking_number": number} for number in numbers]
+    )
+    await setup_integration(hass, entry)
+
+    coordinator = entry.runtime_data.coordinator
+    for state in coordinator.states.values():
+        state.last_polled = None
+
+    order = [
+        state.tracking_number for state in coordinator._due_shipments(dt_util.utcnow())
+    ]
+    assert order[0] == numbers[3]
+
+
+async def test_priority_floors_scale_with_the_configured_interval(
+    hass: HomeAssistant, mock_api: AsyncMock, mock_config_entry: MockConfigEntry
+) -> None:
+    """The per-priority floors are derived from the user's setting."""
+    await setup_integration(hass, mock_config_entry)
+    coordinator = mock_config_entry.runtime_data.coordinator
+    scan_interval = coordinator.options.scan_interval
+
+    assert coordinator.priority_floor(ShipmentPriority.IMMINENT) == timedelta(
+        seconds=scan_interval // 3
+    )
+    assert coordinator.priority_floor(ShipmentPriority.TRANSIT) == timedelta(
+        seconds=scan_interval
+    )
+    assert coordinator.priority_floor(ShipmentPriority.PRE_TRANSIT) == timedelta(
+        seconds=scan_interval * 2
+    )
+
+
+async def test_imminent_floor_never_undercuts_the_minimum(
+    hass: HomeAssistant, mock_api: AsyncMock
+) -> None:
+    """Even at the shortest allowed interval the 5 minute floor holds."""
+    entry = build_config_entry(
+        shipments=[], options={"scan_interval": MIN_SCAN_INTERVAL}
+    )
+    await setup_integration(hass, entry)
+    coordinator = entry.runtime_data.coordinator
+
+    assert coordinator.priority_floor(ShipmentPriority.IMMINENT) == timedelta(
+        seconds=MIN_SCAN_INTERVAL
+    )
+
+
+async def test_budget_holds_with_more_shipments_than_budget(
+    hass: HomeAssistant, mock_api: AsyncMock, shipment_responses: dict
+) -> None:
+    """Even beyond the budget the schedule does not over-commit."""
+    numbers = [f"0034043433000000{i:04d}" for i in range(260)]
+    for index, number in enumerate(numbers):
+        shipment_responses[number] = shipment_payload(
+            number, estimated_delivery=_ISO_IN_2H if index < 10 else _ISO_IN_3D
+        )
+    entry = build_config_entry(
+        shipments=[{"tracking_number": number} for number in numbers],
+        options={"scan_interval": MIN_SCAN_INTERVAL},
+    )
+    await setup_integration(hass, entry)
+
+    coordinator = entry.runtime_data.coordinator
+    assert coordinator.estimated_daily_requests() <= DAILY_REQUEST_BUDGET + EPSILON
+
+
+async def test_delivered_shipments_free_budget_for_the_rest(
+    hass: HomeAssistant, mock_api: AsyncMock, shipment_responses: dict
+) -> None:
+    """Delivered shipments are billed at one call per day, the rest is shared."""
+    active = [f"0034043444000000{i:04d}" for i in range(4)]
+    delivered = [f"0034043455000000{i:04d}" for i in range(20)]
+    for number in active:
+        shipment_responses[number] = shipment_payload(
+            number, estimated_delivery=_ISO_IN_3D
+        )
+    for number in delivered:
+        shipment_responses[number] = shipment_payload(
+            number, status="Delivered", status_code="delivered", estimated_delivery=None
+        )
+    entry = build_config_entry(
+        shipments=[{"tracking_number": n} for n in active + delivered],
+        options={"scan_interval": MIN_SCAN_INTERVAL},
+    )
+    await setup_integration(hass, entry)
+
+    coordinator = entry.runtime_data.coordinator
+    counts = coordinator.priority_counts()
+    assert counts["delivered"] == 20
+    assert counts["transit"] == 4
+    # 200 budget - 20 delivered calls = 180, shared evenly across 4 shipments.
+    assert coordinator.fair_share_interval(
+        ShipmentPriority.TRANSIT
+    ).total_seconds() == pytest.approx(86400 / 45)
+    assert coordinator.estimated_daily_requests() == pytest.approx(200)
