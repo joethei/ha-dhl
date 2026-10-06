@@ -381,9 +381,7 @@ def overdue_by(data: dict[str, Any] | None, now: datetime) -> timedelta | None:
     late, whatever the old forecast says.
     """
     status = (data or {}).get("status") or {}
-    if status.get("statusCode") == STATUS_CODE_DELIVERED or is_ready_for_pickup(
-        status
-    ):
+    if status.get("statusCode") == STATUS_CODE_DELIVERED or is_ready_for_pickup(status):
         return None
     end = expected_delivery_end(data)
     if end is None or now <= end:
