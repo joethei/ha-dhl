@@ -10,7 +10,8 @@ the config entry - see ``models.DhlOptions``. This module stores the
 * the last known status per shipment, so the ``dhl_tracking_status_changed``
   event is not re-fired for unchanged shipments after a restart,
 * the last API payload, so entities are populated immediately after a restart
-  without spending another API call.
+  without spending another API call,
+* every ``statusDetailed`` code seen so far, for the diagnostics.
 """
 
 from __future__ import annotations
@@ -33,7 +34,11 @@ class DhlStateStore:
         self._store: Store[dict[str, Any]] = Store(
             hass, STORAGE_VERSION, STORAGE_KEY_TEMPLATE.format(entry_id)
         )
-        self._data: dict[str, Any] = {"budget": {}, "shipments": {}}
+        self._data: dict[str, Any] = {
+            "budget": {},
+            "shipments": {},
+            "status_codes": {},
+        }
 
     async def async_load(self) -> dict[str, Any]:
         """Load the stored state."""
@@ -42,6 +47,7 @@ class DhlStateStore:
             self._data = {
                 "budget": stored.get("budget") or {},
                 "shipments": stored.get("shipments") or {},
+                "status_codes": stored.get("status_codes") or {},
             }
         return self._data
 

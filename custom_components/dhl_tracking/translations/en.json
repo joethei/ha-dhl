@@ -125,6 +125,14 @@
     }
   },
   "entity": {
+    "binary_sensor": {
+      "delivery_expected_today": {
+        "name": "Delivery expected today"
+      },
+      "pickup_waiting": {
+        "name": "Pickup waiting"
+      }
+    },
     "sensor": {
       "status": {
         "name": "Status"

@@ -3,6 +3,35 @@
 Alle nennenswerten Änderungen an dieser Integration.
 Das Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [0.7.0-beta.3] – 2026-10-06
+
+### Hinzugefügt
+
+- Binärsensoren **Zustellung heute erwartet** und **Abholung wartet** am
+  Dienst-Gerät, mit den betroffenen Sendungen im Attribut `shipments`.
+  Pakete in der Packstation zählen nicht als "heute erwartet", auch wenn DHL
+  den Zustelltag stehen lässt. Um Mitternacht rechnet der Sensor ohne Abfrage
+  neu.
+- `delivery_type` an Statuscode, Status und im Ereignis
+  `dhl_tracking_status_changed`: `drop_off` für den Ablageort
+  (`DLVRD_SECPL_…`), `picked_up` für eine Abholung aus der Packstation.
+- `drop_off_planned`, sobald DHL den Ablageort ankündigt (`ADVIS_PFLOC_…`),
+  in den beobachteten Fällen etwa eine Stunde vor der Zustellung.
+- Geschätzte Abholfrist für Packstation-Pakete: `waiting_since`,
+  `days_waiting` und `estimated_pickup_deadline` am Abholort und an
+  "Abholung wartet". DHL hält Pakete 7 Kalendertage.
+- `timestamp` und `delay_minutes` im Ereignis `dhl_tracking_status_changed`.
+- `observed_status_codes` in den Diagnosedaten: alle bisher gesehenen
+  `statusDetailed`-Codes mit Beispieltext, auch nach dem Entfernen der Sendung.
+- `cash_on_delivery_amount` und `currency` in `offene_sendungen`.
+
+### Geändert
+
+- README überarbeitet, mit einem Abschnitt zu Fallstricken bei Automationen
+  und neuen Beispielen: Morgen-Übersicht für den Haushalt, Packstation beim
+  Rausgehen. Das Aufräum-Beispiel ist entfallen, dafür gibt es die Einstellung.
+- Das E-Mail-Beispiel erkennt auch Sendungsnummern mit `JJD` vorne.
+
 ## [0.7.0-beta.2] – 2026-10-06
 
 ### Hinzugefügt

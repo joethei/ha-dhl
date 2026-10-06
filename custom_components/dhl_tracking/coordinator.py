@@ -68,8 +68,11 @@ from .const import (
     EVENT_STATUS_CHANGED,
     IMMINENT_INTERVAL_DIVISOR,
     ISSUE_SHIPMENT_NOT_FOUND,
+    MAX_OBSERVED_DESCRIPTION_LENGTH,
+    MAX_OBSERVED_STATUS_CODES,
     MIN_SCAN_INTERVAL,
     OUT_FOR_DELIVERY_GRACE_HOURS,
+    PACKSTATION_STORAGE_DAYS,
     PRE_TRANSIT_INTERVAL_FACTOR,
     PRIORITY_WEIGHT_AWAITING_PICKUP,
     PRIORITY_WEIGHT_IMMINENT,
@@ -86,7 +89,7 @@ from .const import (
     STATUS_CODE_UNKNOWN,
 )
 from .models import DhlOptions, Shipment
-from .pickup import is_ready_for_pickup, plain_text
+from .pickup import delivery_type, is_ready_for_pickup, plain_text
 from .services import async_purge_delivered
 from .store import DhlStateStore
 
@@ -499,6 +502,7 @@ class DhlUpdateCoordinator(DataUpdateCoordinator[dict[str, ShipmentState]]):
         self._scan_listeners: list[ScanListener] = []
         self._last_request_at: datetime | None = None
         self._announce_first_status: set[str] = set()
+        self.observed_status_codes: dict[str, dict[str, Any]] = {}
 
         super().__init__(
             hass,
@@ -514,6 +518,7 @@ class DhlUpdateCoordinator(DataUpdateCoordinator[dict[str, ShipmentState]]):
         """Restore persisted state and build the shipment states."""
         stored = await self.store.async_load()
         self.budget.restore(stored.get("budget") or {})
+        self.observed_status_codes = dict(stored.get("status_codes") or {})
         stored_shipments: dict[str, Any] = stored.get("shipments") or {}
 
         for shipment in self.options.shipments:
@@ -594,6 +599,7 @@ class DhlUpdateCoordinator(DataUpdateCoordinator[dict[str, ShipmentState]]):
                     }
                     for tracking_number, state in self.states.items()
                 },
+                "status_codes": self.observed_status_codes,
             }
         )
 
@@ -974,6 +980,7 @@ class DhlUpdateCoordinator(DataUpdateCoordinator[dict[str, ShipmentState]]):
 
         state.error = None
         _async_clear_not_found(self.hass, shipment.tracking_number)
+        self._record_status_codes(data)
         state.last_success = state.last_polled
         previous = state.data
         # `_announce_first_status` marks shipments added during this session;
@@ -982,6 +989,40 @@ class DhlUpdateCoordinator(DataUpdateCoordinator[dict[str, ShipmentState]]):
         state.data = data
         self._async_handle_status(state, data)
         self._async_emit_payload_events(state, previous, data, is_new=is_new)
+
+    def _record_status_codes(self, data: dict[str, Any]) -> None:
+        """Remember every `statusDetailed` code with an example text."""
+        entries = [data.get("status"), *(data.get("events") or [])]
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            code = entry.get("statusDetailed")
+            if not isinstance(code, str) or not code:
+                continue
+            timestamp = parse_api_datetime(entry.get("timestamp"))
+            seen = timestamp.isoformat() if timestamp else None
+            known = self.observed_status_codes.get(code)
+            if known is None:
+                if len(self.observed_status_codes) >= MAX_OBSERVED_STATUS_CODES:
+                    continue
+                description = plain_text(entry.get("description"))
+                self.observed_status_codes[code] = {
+                    "status": entry.get("status"),
+                    "status_code": entry.get("statusCode"),
+                    "description": (
+                        description[:MAX_OBSERVED_DESCRIPTION_LENGTH]
+                        if isinstance(description, str)
+                        else None
+                    ),
+                    "first_seen": seen,
+                    "last_seen": seen,
+                }
+                continue
+            if seen is not None:
+                if known.get("first_seen") is None or seen < known["first_seen"]:
+                    known["first_seen"] = seen
+                if known.get("last_seen") is None or seen > known["last_seen"]:
+                    known["last_seen"] = seen
 
     @callback
     def _async_report_not_found(self, state: ShipmentState) -> None:
@@ -1047,6 +1088,9 @@ class DhlUpdateCoordinator(DataUpdateCoordinator[dict[str, ShipmentState]]):
             "old_status_code_api": old_status_code,
             "new_status_code_api": new_status_code,
             "description": plain_text(status_block.get("description")),
+            # `drop_off` or `picked_up` once delivered, otherwise `None`.
+            "delivery_type": delivery_type(data),
+            **_scan_time(status_block.get("timestamp"), dt_util.utcnow()),
         }
         self.hass.bus.async_fire(EVENT_STATUS_CHANGED, payload)
         for listener in list(self._status_listeners):
@@ -1205,13 +1249,58 @@ class DhlUpdateCoordinator(DataUpdateCoordinator[dict[str, ShipmentState]]):
         )
 
 
-def _forecast_date(data: dict[str, Any] | None) -> str | None:
-    """Return the expected delivery day as an ISO date string."""
+def _scan_time(value: Any, now: datetime) -> dict[str, Any]:
+    """Return when a scan happened and how late Home Assistant learned of it.
+
+    The trigger time of an automation is when the poll found the scan, which
+    can be an hour after it happened.
+    """
+    timestamp = parse_api_datetime(value)
+    if timestamp is None:
+        return {"timestamp": None, "delay_minutes": None}
+    delay = max(0, int((now - timestamp).total_seconds() // 60))
+    return {"timestamp": timestamp.isoformat(), "delay_minutes": delay}
+
+
+def pickup_wait(data: dict[str, Any] | None, now: datetime) -> dict[str, Any]:
+    """Return since when a parcel waits for pickup and the estimated deadline.
+
+    The wait starts with the first `ready_for_pickup` scan. The deadline
+    counts `PACKSTATION_STORAGE_DAYS` calendar days, the first one included.
+    """
+    if not is_ready_for_pickup((data or {}).get("status")):
+        return {}
+    candidates = [
+        parsed
+        for event in [(data or {}).get("status"), *((data or {}).get("events") or [])]
+        if is_ready_for_pickup(event)
+        and (parsed := parse_api_datetime(event.get("timestamp"))) is not None
+    ]
+    if not candidates:
+        return {}
+    since = min(candidates)
+    placed = dt_util.as_local(since).date()
+    deadline = placed + timedelta(days=PACKSTATION_STORAGE_DAYS - 1)
+    return {
+        "waiting_since": since.isoformat(),
+        "days_waiting": (dt_util.as_local(now).date() - placed).days,
+        "estimated_pickup_deadline": deadline.isoformat(),
+    }
+
+
+def forecast_day(data: dict[str, Any] | None) -> date | None:
+    """Return the local calendar day DHL expects to deliver on."""
     start, _ = delivery_time_frame(data)
     if start is not None:
-        return dt_util.as_local(start).date().isoformat()
+        return dt_util.as_local(start).date()
     eta = parse_api_instant((data or {}).get("estimatedTimeOfDelivery"))
-    return dt_util.as_local(eta).date().isoformat() if eta else None
+    return dt_util.as_local(eta).date() if eta else None
+
+
+def _forecast_date(data: dict[str, Any] | None) -> str | None:
+    """Return the expected delivery day as an ISO date string."""
+    day = forecast_day(data)
+    return day.isoformat() if day else None
 
 
 def _proof_of_delivery(data: dict[str, Any] | None) -> str | None:

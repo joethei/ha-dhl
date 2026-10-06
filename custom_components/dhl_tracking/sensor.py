@@ -51,8 +51,9 @@ from .coordinator import (
     overdue_by,
     parse_api_date,
     parse_api_datetime,
+    pickup_wait,
 )
-from .pickup import pickup_location, plain_text
+from .pickup import delivery_type, drop_off_planned, pickup_location, plain_text
 from .platform_helper import async_setup_shipment_platform
 from .shipment_features import extract_features
 
@@ -281,6 +282,7 @@ def _handover_attributes(data: dict[str, Any]) -> dict[str, Any]:
     if (url := pod.get("documentUrl")) is not None:
         attrs["proof_of_delivery_url"] = url
 
+    attrs["delivery_type"] = delivery_type(data)
     return attrs
 
 
@@ -412,6 +414,7 @@ def _summary_attributes(data: dict[str, Any]) -> dict[str, Any]:
         # `out_for_delivery` or `ready_for_pickup`.
         "status_code_api": _nested(data, "status", "statusCode"),
         "description": plain_text(_nested(data, "status", "description")),
+        "drop_off_planned": drop_off_planned(data),
         "references": _references(data),
         "customer_reference": _primary_reference(data),
         # DHL only sends the reroute link while rerouting is actually possible
@@ -460,9 +463,12 @@ SENSOR_DESCRIPTIONS: tuple[DhlSensorEntityDescription, ...] = (
         icon="mdi:package-variant-closed-check",
         value_fn=lambda data: (_pickup_location(data) or {}).get("label"),
         extra_attrs_fn=lambda data: {
-            key: value
-            for key, value in (_pickup_location(data) or {}).items()
-            if key != "label"
+            **{
+                key: value
+                for key, value in (_pickup_location(data) or {}).items()
+                if key != "label"
+            },
+            **pickup_wait(data, dt_util.utcnow()),
         },
     ),
     DhlSensorEntityDescription(
@@ -909,6 +915,7 @@ class DhlOpenShipmentsSensor(DhlEntrySensor):
                     "status": _nested(data, "status", "status"),
                     "description": plain_text(_nested(data, "status", "description")),
                     "pickup_location": (_pickup_location(data) or {}).get("label"),
+                    "drop_off_planned": drop_off_planned(data),
                     "estimated_delivery": (
                         delivery.isoformat() if delivery is not None else None
                     ),
@@ -919,6 +926,8 @@ class DhlOpenShipmentsSensor(DhlEntrySensor):
                     "signature_required": features.signature_required,
                     "id_required": features.id_required,
                     "services": list(features.services),
+                    "cash_on_delivery_amount": features.cash_on_delivery_amount,
+                    "currency": features.cash_on_delivery_currency,
                     "customer_reference": _primary_reference(data),
                     "next_steps": _nested(data, "status", "nextSteps"),
                 }

@@ -52,6 +52,7 @@ async def test_open_shipments_counts_undelivered(
         "status",
         "description",
         "pickup_location",
+        "drop_off_planned",
         "estimated_delivery",
         "estimated_delivery_date",
         "time_frame_from",
@@ -60,6 +61,8 @@ async def test_open_shipments_counts_undelivered(
         "signature_required",
         "id_required",
         "services",
+        "cash_on_delivery_amount",
+        "currency",
         "customer_reference",
         "next_steps",
     }
@@ -78,6 +81,25 @@ async def test_open_shipments_reflects_services(
     shipments = hass.states.get(OPEN).attributes["shipments"]
     assert shipments[0]["signature_required"] is True
     assert shipments[0]["services"] == ["signature"]
+    assert shipments[0]["cash_on_delivery_amount"] is None
+
+
+async def test_open_shipments_carries_the_cash_on_delivery_amount(
+    hass: HomeAssistant, mock_api: AsyncMock, shipment_responses: dict
+) -> None:
+    """A morning summary can name the amount without per-shipment entities."""
+    data = shipment_payload(TRACKING_NUMBER)
+    data["details"]["valueAddedServices"] = {
+        "services": [{"serviceType": "cashOnDelivery", "serviceCriteria": "49,90 EUR"}]
+    }
+    shipment_responses[TRACKING_NUMBER] = data
+    entry = build_config_entry(shipments=[{"tracking_number": TRACKING_NUMBER}])
+    await setup_integration(hass, entry)
+
+    [shipment] = hass.states.get(OPEN).attributes["shipments"]
+    assert shipment["cash_on_delivery_amount"] == 49.9
+    assert shipment["currency"] == "EUR"
+    assert shipment["signature_required"] is True
 
 
 async def test_open_shipments_updates_at_runtime(

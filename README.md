@@ -1,40 +1,40 @@
-# DHL Tracking – Home Assistant Custom Integration
+# DHL Tracking für Home Assistant
 
-Home-Assistant-Integration zur Verfolgung von DHL-Sendungen über die **offizielle**
-[„Shipment Tracking – Unified" API](https://developer.dhl.com/api-reference/shipment-tracking)
+Diese Integration verfolgt DHL-Sendungen über die offizielle
+["Shipment Tracking Unified" API](https://developer.dhl.com/api-reference/shipment-tracking)
 von Deutsche Post DHL Group.
 
-Sendungsnummern lassen sich **zur Laufzeit** hinzufügen und entfernen – über die
-Benutzeroberfläche oder über Automatisierungen. Weder ein Neustart von Home
-Assistant noch eine Neueingabe des API-Schlüssels ist nötig.
+Sendungsnummern kommen und gehen zur Laufzeit, über die Oberfläche oder per
+Automation. Home Assistant muss dafür nicht neu starten, und den API-Schlüssel
+gibst du nur einmal ein.
 
 ## Funktionsumfang
 
-- 📦 Ein Gerät pro Sendung mit 25 Sensoren und einer Event-Entität, gruppiert in der Home-Assistant-Oberfläche
-- 🏷️ Zustellmerkmale strukturiert: `signature_required`, `id_required`, `services`, Nachnahmebetrag
-- 🚚 Eigener Status `out_for_delivery`, abgeleitet aus dem Zustellfenster
-- ⏰ Eigener Status `delayed`, wenn DHLs Zustellprognose abgelaufen ist
-- 🏧 Eigener Status `ready_for_pickup` und Sensor **Abholort** für Pakete in der Packstation
-- 🔎 Prüfziffer-Kontrolle für 20-stellige Paketnummern und Reparaturhinweis bei unbekannten Nummern
-- ➕ `dhl_tracking.add_shipment` / `dhl_tracking.remove_shipment` /
-  `dhl_tracking.remove_delivered_shipments` als vollwertige Aktionen
-- 🖱️ Options Flow unter *Einstellungen → Geräte & Dienste → DHL Tracking → Konfigurieren*
-- 📅 Ereignisse `dhl_tracking_shipment_added`, `dhl_tracking_shipment_removed`,
-  `dhl_tracking_status_changed` für Automatisierungen
-- ⏱️ Adaptives Polling mit hartem Tagesbudget, damit das DHL-Kontingent nicht reißt
-- 🚚 Pakete in Zustellung werden dreimal so oft abgefragt wie normal unterwegs befindliche
-- 🔁 Exponentielles Backoff bei HTTP 429, keine aggressiven Retries
-- 🌍 Deutsche und englische Übersetzungen
-- 🔐 API-Schlüssel wird niemals geloggt; Diagnosedaten sind redigiert
+- Ein Gerät pro Sendung mit 25 Sensoren und zwei Event-Entitäten
+- Zustellmerkmale als eigene Felder: `signature_required`, `id_required`, `services`, Nachnahmebetrag
+- Drei Statuscodes, die DHL nicht selbst liefert: `out_for_delivery` aus dem Zustellfenster, `delayed` bei abgelaufener Prognose und `ready_for_pickup` für Pakete in der Packstation
+- Sensor "Abholort" mit Adresse und Nummer der Packstation
+- Binärsensoren "Zustellung heute erwartet" und "Abholung wartet" für einfache Automationsbedingungen
+- Attribut `delivery_type`, das eine Zustellung am Ablageort und eine Abholung aus der Packstation erkennt
+- Prüfziffer-Kontrolle für 20-stellige Paketnummern und ein Reparaturhinweis, wenn DHL eine Nummer nicht kennt
+- Die Aktionen `dhl_tracking.add_shipment`, `dhl_tracking.remove_shipment` und `dhl_tracking.remove_delivered_shipments`
+- Options Flow unter *Einstellungen → Geräte & Dienste → DHL Tracking → Konfigurieren*
+- Acht Ereignisse für Automationen, darunter jeder einzelne Scan und überfällige Zustellungen
+- Ein hartes Tagesbudget, damit das DHL-Kontingent nicht reißt. Pakete in Zustellung fragt die Integration dreimal so oft ab wie andere.
+- Exponentielles Backoff bei HTTP 429
+- Deutsche und englische Übersetzungen
+- Der API-Schlüssel landet nie im Log, und die Diagnosedaten sind redigiert
 
 ## Installation
 
-### HACS (empfohlen)
+### HACS
+
+Der empfohlene Weg.
 
 1. HACS öffnen → **Integrationen**
-2. Menü (drei Punkte) → **Benutzerdefinierte Repositories**
+2. Menü mit den drei Punkten → **Benutzerdefinierte Repositories**
 3. `https://github.com/pascatl/ha-dhl` als Repository vom Typ *Integration* hinzufügen
-4. „DHL Tracking" suchen und installieren
+4. "DHL Tracking" suchen und installieren
 5. Home Assistant neu starten
 
 ### Manuelle Installation
@@ -43,7 +43,7 @@ Assistant noch eine Neueingabe des API-Schlüssels ist nötig.
 2. Inhalt nach `config/custom_components/dhl_tracking/` entpacken
 3. Home Assistant neu starten
 
-Das Repository ist nach dem Standard-Layout aufgebaut:
+Das Repository folgt dem Standard-Layout:
 
 ```
 custom_components/dhl_tracking/
@@ -68,17 +68,18 @@ custom_components/dhl_tracking/
 ### DHL-API-Schlüssel
 
 1. Account im [DHL Developer Portal](https://developer.dhl.com/) anlegen
-2. Eine App für die API **„Shipment Tracking – Unified"** erstellen
+2. Eine App für die API "Shipment Tracking Unified" erstellen
 3. API-Key kopieren
 
 ### Integration hinzufügen
 
 1. **Einstellungen → Geräte & Dienste → Integration hinzufügen**
-2. „DHL Tracking" auswählen
+2. "DHL Tracking" auswählen
 3. API-Schlüssel eintragen
-4. Sendungsnummern sind **optional** – sie können jederzeit später ergänzt werden
+4. Sendungsnummern sind optional, du kannst sie jederzeit später ergänzen
 
-Beim Einrichten wird **genau ein** API-Aufruf zur Prüfung des Schlüssels gemacht.
+Die Einrichtung kostet genau einen API-Aufruf, mit dem die Integration den
+Schlüssel prüft.
 
 ## Bedienung über die Oberfläche
 
@@ -86,17 +87,17 @@ Beim Einrichten wird **genau ein** API-Aufruf zur Prüfung des Schlüssels gemac
 
 | Menüpunkt | Funktion |
 |---|---|
-| **Sendung hinzufügen** | Neue Sendungsnummer mit optionalem Anzeigenamen und Empfänger-PLZ |
-| **Sendung bearbeiten** | Anzeigename und Empfänger-PLZ einer vorhandenen Sendung ändern |
-| **Sendungen entfernen** | Mehrere Sendungen gleichzeitig entfernen |
-| **Abfrage-Einstellungen** | Intervall, Antwortsprache, Umgang mit zugestellten Sendungen, automatisches Aufräumen |
+| Sendung hinzufügen | Neue Sendungsnummer mit optionalem Anzeigenamen und Empfänger-PLZ |
+| Sendung bearbeiten | Anzeigename und Empfänger-PLZ einer vorhandenen Sendung ändern |
+| Sendungen entfernen | Mehrere Sendungen auf einmal entfernen |
+| Abfrage-Einstellungen | Intervall, Antwortsprache, Umgang mit zugestellten Sendungen, automatisches Aufräumen |
 
-Options Flow und Aktionen schreiben in denselben Datenbestand (die Config-Entry-Options),
-sind also immer synchron. Änderungen greifen sofort – der Config Entry wird dabei
-**nicht** neu geladen.
+Options Flow und Aktionen schreiben in dieselben Config-Entry-Options und sind
+deshalb immer synchron. Änderungen greifen sofort, ohne dass der Config Entry
+neu lädt.
 
-Alternativ lässt sich eine Sendung auch entfernen, indem ihr Gerät in der
-Geräteübersicht gelöscht wird.
+Du kannst eine Sendung auch entfernen, indem du ihr Gerät in der
+Geräteübersicht löschst.
 
 ## Aktionen
 
@@ -112,16 +113,18 @@ data:
 
 | Feld | Pflicht | Beschreibung |
 |---|---|---|
-| `tracking_number` | ja | Sendungsnummer. Leerzeichen werden entfernt, Kleinbuchstaben in Großbuchstaben gewandelt. |
-| `name` | nein | Anzeigename; wird als Gerätename verwendet und ist später änderbar, ohne neue Entities zu erzeugen. |
-| `recipient_postal_code` | nein | Empfänger-PLZ. DHL liefert für `parcel-de`/`parcel-nl` nur damit den vollen Datenumfang. |
-| `config_entry_id` | nein | Nur nötig, wenn mehrere DHL-Tracking-Einträge existieren. |
+| `tracking_number` | ja | Sendungsnummer. Die Integration entfernt Leerzeichen und wandelt Kleinbuchstaben in Großbuchstaben. |
+| `name` | nein | Anzeigename. Er wird zum Gerätenamen und lässt sich später ändern, ohne dass neue Entities entstehen. |
+| `recipient_postal_code` | nein | Empfänger-PLZ. Für `parcel-de` und `parcel-nl` liefert DHL nur damit den vollen Datensatz. |
+| `config_entry_id` | nein | Nur nötig, wenn es mehrere DHL-Tracking-Einträge gibt. |
 
-Fehlerfälle (jeweils als `ServiceValidationError` mit übersetzter Meldung):
+Bei ungültigen Eingaben bricht die Aktion mit einem `ServiceValidationError`
+und einer übersetzten Meldung ab:
 
 - leere Nummer → `empty_tracking_number`
 - ungültiges Format → `invalid_tracking_number`
-- Nummer bereits registriert → `already_tracked` (der gespeicherte Bestand bleibt unverändert)
+- falsche Prüfziffer bei einer 20-stelligen Nummer → `invalid_check_digit`
+- Nummer schon registriert → `already_tracked`, der gespeicherte Bestand bleibt unverändert
 
 ### `dhl_tracking.remove_shipment`
 
@@ -131,9 +134,8 @@ data:
   tracking_number: "00340434123456789012"
 ```
 
-Entfernt die Sendung aus dem persistenten Speicher, löscht die Entities aus der
-Entity Registry und das zugehörige Gerät. Eine unbekannte Nummer führt zu
-`not_tracked`.
+Die Aktion entfernt die Sendung aus dem Speicher und löscht ihre Entities und
+ihr Gerät. Eine unbekannte Nummer führt zu `not_tracked`.
 
 ### `dhl_tracking.remove_delivered_shipments`
 
@@ -144,9 +146,9 @@ data:
 response_variable: aufgeraeumt
 ```
 
-Entfernt alle Sendungen, deren Zustellung mindestens `older_than_days` Tage
-zurückliegt (Standard: 7, `0` entfernt jede zugestellte Sendung sofort).
-Die Aktion liefert eine Antwort:
+Die Aktion entfernt alle Sendungen, deren Zustellung mindestens
+`older_than_days` Tage zurückliegt. Der Standard ist 7, bei `0` verschwindet
+jede zugestellte Sendung sofort. Die Antwort sieht so aus:
 
 ```yaml
 removed:
@@ -154,7 +156,7 @@ removed:
 count: 1
 ```
 
-Sendungen ohne Zustell-Zeitstempel werden nie automatisch entfernt.
+Sendungen ohne Zustell-Zeitstempel bleiben immer stehen.
 
 ## Ereignisse
 
@@ -163,16 +165,16 @@ Sendungen ohne Zustell-Zeitstempel werden nie automatisch entfernt.
 | `dhl_tracking_shipment_added` | Sendung wurde registriert |
 | `dhl_tracking_shipment_removed` | Sendung wurde entfernt |
 | `dhl_tracking_status_changed` | `status.status` oder `status.statusCode` hat sich geändert |
-| `dhl_tracking_scan_added` | neuer Eintrag in `events[]` – jeder Scan, auch ohne Statuswechsel |
+| `dhl_tracking_scan_added` | neuer Eintrag in `events[]`, also jeder Scan, auch ohne Statuswechsel |
 | `dhl_tracking_delivery_changed` | Zustellfenster oder Zustelltag hat sich verschoben |
-| `dhl_tracking_delivery_overdue` | Prognose um mehr als zwei Stunden überschritten, nicht zugestellt |
+| `dhl_tracking_delivery_overdue` | Prognose seit mehr als zwei Stunden vorbei, Paket nicht zugestellt |
 | `dhl_tracking_reroute_available` | DHL liefert einen Umleitungs-Link |
 | `dhl_tracking_proof_of_delivery_available` | Zustellnachweis ist abrufbar |
 
-Alle Ereignisse werden aus dem Vergleich zweier API-Antworten abgeleitet und
-kosten **keinen zusätzlichen Aufruf**. Beim ersten Datensatz einer Sendung
-wird nur ein Ausgangsstand erfasst: Weder ein Neustart noch das Hinzufügen
-einer seit Tagen unterwegs befindlichen Nummer spielt deren Historie nach.
+Die Integration leitet alle Ereignisse aus dem Vergleich zweier API-Antworten
+ab. Sie kosten also keinen zusätzlichen Aufruf. Der erste Datensatz einer
+Sendung legt nur den Ausgangsstand fest. Weder ein Neustart noch eine Nummer,
+die schon seit Tagen unterwegs ist, spielt die Historie als Ereignisse nach.
 
 Beispiel-Payload von `dhl_tracking_status_changed`:
 
@@ -186,16 +188,157 @@ new_status_code: "delivered"
 old_status_code_api: "transit"        # unveraenderter API-Wert
 new_status_code_api: "delivered"
 description: "Die Sendung wurde zugestellt."
+delivery_type: null                   # nach der Zustellung z. B. "drop_off"
+timestamp: "2026-09-23T11:05:00+02:00" # wann DHL gescannt hat
+delay_minutes: 37                     # so viel später hat HA davon erfahren
 ```
 
-Zusaetzlich gibt es je Sendung eine [Event-Entitaet](#event-entitaet-je-sendung).
+Dazu hat jede Sendung zwei [Event-Entitäten](#event-entitäten-je-sendung).
 
-Die Ereignisse enthalten bewusst **keine** API-Schlüssel, Adressen oder
-Empfängernamen. Beim Start von Home Assistant wird für bereits bekannte
-Sendungen **kein** Statusereignis gefeuert – der zuletzt bekannte Status wird
-persistent gespeichert und nach dem Neustart wiederhergestellt.
+Ereignisse enthalten keine API-Schlüssel und keine Empfängernamen. Beim Start
+von Home Assistant feuert für bekannte Sendungen kein Statusereignis, weil die
+Integration den letzten Status speichert und nach dem Neustart wiederherstellt.
+
+## Fallstricke bei Automationen
+
+Die Integration ist kein Live-Tracking. Zwei Verzögerungen addieren sich.
+
+1. **DHL.** Ein Scan erscheint erst mit Verzögerung in der Entwickler-API.
+   Wie lange das dauert, dokumentiert DHL nicht. Die DHL-App ist meist
+   schneller, siehe [unten](#die-app-zeigt-andere-zeiten-als-home-assistant).
+2. **Abfragetakt.** Das Tageskontingent erlaubt pro Sendung nur eine Abfrage
+   alle paar Minuten bis Stunden. Pakete in Zustellung kommen am häufigsten
+   dran, angekündigte und abholbereite am seltensten, siehe
+   [Priorität](#priorität-pakete-in-zustellung-werden-häufiger-abgefragt).
+
+Ein Ereignis erreicht Home Assistant deshalb typischerweise Minuten bis über
+eine Stunde nach dem echten Scan. Das hat Folgen.
+
+| Fallstrick | Was passiert | Besser |
+|---|---|---|
+| Zwischenschritte fehlen | `dhl_tracking_status_changed` vergleicht nur zwei Abfragen. Wird ein Paket zwischen zwei Abfragen beladen *und* zugestellt, springt der Status direkt von `transit` auf `delivered`. Eine Automation auf `out_for_delivery` feuert dann nie. | Für Zwischenschritte `dhl_tracking_scan_added` nutzen, das feuert für jeden Scan. Oder den Zustand prüfen, statt auf den Übergang zu warten. Ein Beispiel steht unten. |
+| Auslösezeit ist nicht Scanzeit | Die Automation läuft, wenn Home Assistant vom Scan erfährt. "Zugestellt" kommt an, wenn das Paket längst vor der Tür liegt. | Für Uhrzeiten `timestamp` aus dem Ereignis verwenden, das gibt es in `dhl_tracking_scan_added` und `dhl_tracking_status_changed`. `delay_minutes` im Statusereignis sagt, wie alt die Nachricht ist. Um dem Paketboten die Tür zu öffnen, taugt die Integration nicht. |
+| Mehrere Scans auf einmal | Eine Abfrage kann mehrere neue Scans liefern, die direkt hintereinander feuern. Im Modus `single` gehen alle bis auf den ersten verloren. | `mode: queued` verwenden. |
+| Entitäten verschwinden | Jede Sendung hat eigene Entitäten. Wird sie entfernt, auch automatisch nach der Zustellung, sind die Entitäten weg und Automationen auf eine feste Entity-ID brechen. | Auf die `dhl_tracking_*`-Ereignisse triggern und `trigger.event.data.name` oder `tracking_number` verwenden. Oder die Übersichts-Sensoren auswerten. |
+| Abgeleitete Zustände sind Schätzungen | `out_for_delivery`, `delayed` und `ready_for_pickup` meldet DHL nicht selbst. `out_for_delivery` gibt es nur mit einem Zustellfenster für heute, und viele DHL-Pakete haben nur einen Zustelltag. `delayed` greift zwei Stunden nach Ende der Prognose und erst mit der nächsten Abfrage. | Nicht davon ausgehen, dass jedes Paket jeden Status durchläuft. |
+| Packstation | Bei einem Packstation-Paket bedeutet `delivered` die Abholung, nicht das Einlegen. | Auf `ready_for_pickup` triggern. |
+| Texte vergleichen | `status`, `description` und `remark` sind Freitext in der eingestellten Sprache. Codes wie `PO` sind undokumentiert. Ein Sprachwechsel oder eine Änderung bei DHL bricht die Automation. | Nur `status_code` oder den `event_type` der Event-Entitäten auswerten. |
+| Neue Nummern | DHL kennt eine Sendung oft erst Stunden nach der Versandmail. Bis dahin sind die Sensoren leer und ein Reparaturhinweis erscheint. | Abwarten, das ist kein Fehler. |
+| Funkstille | Ist das Tagesbudget erschöpft, gibt es bis Mitternacht keine Updates. Nach einem HTTP 429 pausiert die Integration bis zu sechs Stunden. Solange Home Assistant aus ist, fragt niemand ab. Die erste Abfrage danach holt die Änderungen nach. | Keine Automation bauen, die ein Ereignis innerhalb einer bestimmten Zeit braucht. |
 
 ## Beispielautomationen
+
+### Jeden Scan mit Uhrzeit melden
+
+Diese Automation feuert für jeden Scan, auch wenn mehrere mit einer Abfrage
+ankommen. Die Meldung nennt die Uhrzeit des Scans, nicht die Auslösezeit.
+
+```yaml
+alias: DHL-Scan melden
+mode: queued
+triggers:
+  - trigger: event
+    event_type: dhl_tracking_scan_added
+actions:
+  - action: notify.persistent_notification
+    data:
+      title: "DHL: {{ trigger.event.data.name }}"
+      message: >-
+        {{ as_timestamp(trigger.event.data.timestamp)
+           | timestamp_custom('%H:%M') }} Uhr:
+        {{ trigger.event.data.description }}
+```
+
+### Morgen-Übersicht
+
+Um 7 Uhr bekommen alle im Haus eine Nachricht mit den Paketen, die DHL für
+heute erwartet. Dazu steht, ob jemand persönlich annehmen muss und wie viel
+Bargeld eine Nachnahme kostet. Der Empfänger erfährt das auch aus der DHL-App,
+die anderen im Haushalt aber nicht. Wer zu Hause ist, weiß so, dass ein Paket
+kommt, das kein Nachbar annehmen darf.
+
+Die Automation liest den Zustand und braucht deshalb kein Ereignis. Sie
+funktioniert auch, wenn DHL nur den Tag kennt, und das ist bei den meisten
+Paketen so. Um 7 Uhr ist das allerdings eine Prognose. Beladen wird das
+Zustellfahrzeug meist erst später am Morgen, und dass das Paket wirklich
+unterwegs ist, meldet dem Empfänger dann die DHL-App.
+
+`notify.haushalt` ist eine
+[Notify-Gruppe](https://www.home-assistant.io/integrations/group/#notify-groups)
+mit den Handys aller im Haus. Gib den Sendungen Namen, an denen die anderen
+erkennen, für wen das Paket ist, etwa "Wein (Anna)". Den Empfängernamen gibt
+die Integration aus Datenschutzgründen nicht heraus.
+
+```yaml
+alias: DHL-Morgenübersicht
+triggers:
+  - trigger: time
+    at: "07:00:00"
+variables:
+  heute: >-
+    {{ state_attr('sensor.dhl_tracking_offene_sendungen', 'shipments')
+       | default([], true)
+       | selectattr('estimated_delivery_date', 'eq', now().date().isoformat())
+       | list }}
+conditions:
+  - condition: template
+    value_template: "{{ heute | count > 0 }}"
+actions:
+  - action: notify.haushalt
+    data:
+      title: "Heute {{ heute | count }} DHL-Paket(e)"
+      message: |-
+        {% for p in heute -%}
+        {{ p.name }}
+        {%- if p.id_required %}: nur persönlich, Ausweis bereithalten
+        {%- elif p.signature_required %}: Unterschrift nötig
+        {%- endif %}
+        {%- if p.cash_on_delivery_amount %}, Nachnahme
+        {{- ' %.2f' | format(p.cash_on_delivery_amount) | replace('.', ',') }}
+        {{- ' ' ~ p.currency if p.currency }}
+        {%- endif %}
+        {% endfor %}
+```
+
+Die Nachricht sieht dann so aus:
+
+```
+Ersatzteil
+Wein (Anna): nur persönlich, Ausweis bereithalten
+Kamera: Unterschrift nötig, Nachnahme 49,90 EUR
+```
+
+### Packstation beim Rausgehen
+
+Sobald du das Haus verlässt und ein Paket in der Packstation liegt, kommt eine
+Erinnerung mit dem Abholort. `person.ich` und `notify.mobile_app_mein_handy`
+musst du an deine Installation anpassen.
+
+```yaml
+alias: DHL-Packstation beim Rausgehen
+triggers:
+  - trigger: state
+    entity_id: person.ich
+    from: home
+conditions:
+  - condition: state
+    entity_id: binary_sensor.dhl_tracking_abholung_wartet
+    state: "on"
+actions:
+  - action: notify.mobile_app_mein_handy
+    data:
+      title: "Packstation nicht vergessen"
+      message: |-
+        {% for p in state_attr('binary_sensor.dhl_tracking_abholung_wartet', 'shipments') -%}
+        {{ p.name }}: {{ p.pickup_location | default('Abholort unbekannt', true) }},
+        abholen bis {{ as_datetime(p.estimated_pickup_deadline).strftime('%d.%m.') }}
+        {% endfor %}
+```
+
+Die Automation feuert bei jedem Verlassen des Hauses, solange das Paket in der
+Packstation liegt. Holst du es ab, meldet DHL `delivered` und die Erinnerungen
+hören auf. Das passiert mit der üblichen Verzögerung, siehe
+[Fallstricke](#fallstricke-bei-automationen).
 
 ### Sendungsnummer aus einer E-Mail übernehmen
 
@@ -208,11 +351,12 @@ triggers:
 conditions:
   - condition: template
     value_template: >-
-      {{ trigger.event.data.text is search('\\b\\d{12,20}\\b') }}
+      {{ trigger.event.data.text is search('\\b(JJD\\d{12,20}|\\d{12,20})\\b') }}
 actions:
   - variables:
       tracking_number: >-
-        {{ trigger.event.data.text | regex_findall('\\b\\d{12,20}\\b') | first }}
+        {{ trigger.event.data.text
+           | regex_findall('\\b(?:JJD\\d{12,20}|\\d{12,20})\\b') | first }}
   - action: dhl_tracking.add_shipment
     continue_on_error: true
     data:
@@ -220,13 +364,15 @@ actions:
       name: "{{ trigger.event.data.subject | truncate(80, true, '') }}"
 ```
 
-> `continue_on_error: true` sorgt dafür, dass eine bereits registrierte Nummer
-> die Automation nicht abbrechen lässt.
+> Die Regex findet reine Ziffernnummern und Nummern mit `JJD` vorne, wie sie
+> DHL bei vielen Paketen verwendet. Mit `continue_on_error: true` bricht die
+> Automation nicht ab, wenn die Nummer schon registriert ist.
 
 ### Benachrichtigung bei Statusänderung
 
 ```yaml
 alias: DHL-Statusänderung melden
+mode: queued
 triggers:
   - trigger: event
     event_type: dhl_tracking_status_changed
@@ -239,88 +385,78 @@ actions:
         → {{ trigger.event.data.new_status }}
 ```
 
-### Zugestellte Sendungen sieben Tage nach Zustellung aufräumen
-
-```yaml
-alias: DHL-Sendungen nach Zustellung aufräumen
-triggers:
-  - trigger: time
-    at: "03:30:00"
-actions:
-  - action: dhl_tracking.remove_delivered_shipments
-    data:
-      older_than_days: 7
-    response_variable: aufgeraeumt
-  - if:
-      - condition: template
-        value_template: "{{ aufgeraeumt.count > 0 }}"
-    then:
-      - action: notify.persistent_notification
-        data:
-          title: "DHL Tracking aufgeräumt"
-          message: >-
-            {{ aufgeraeumt.count }} zugestellte Sendung(en) entfernt:
-            {{ aufgeraeumt.removed | join(', ') }}
-```
-
 ## Entities
 
-Pro Sendung wird ein Gerät mit 25 Sensoren und einer Event-Entität angelegt. Die Unique IDs haben das
-Format `dhl_tracking_<sendungsnummer>_<sensor>` und sind gegenüber früheren
-Versionen unverändert – vorhandene Entity-IDs bleiben also erhalten.
+Pro Sendung legt die Integration ein Gerät mit 25 Sensoren und zwei
+Event-Entitäten an. Die Unique IDs haben das Format
+`dhl_tracking_<sendungsnummer>_<sensor>` und sind seit den ersten Versionen
+gleich. Vorhandene Entity-IDs bleiben also erhalten.
 
 | Sensor | API-Feld | Kategorie |
 |---|---|---|
-| Status | `status.status` | – |
-| Statuscode | `status.statusCode` (Enum) | Diagnose |
-| Status-Zeitstempel | `status.timestamp` | – |
-| Statusbeschreibung | `status.description` (ohne HTML) | – |
-| Abholort | Packstation bzw. Abholstelle aus `status.description` | – |
-| Nächste Schritte | `status.nextSteps` | – |
-| Kundenreferenz | `details.references[]` (bevorzugt `customer-order-number`) | – |
-| Status-Standort | `status.location` (Ort, Land) | – |
+| Status | `status.status` | |
+| Statuscode | `status.statusCode` als Enum | Diagnose |
+| Status-Zeitstempel | `status.timestamp` | |
+| Statusbeschreibung | `status.description`, ohne HTML | |
+| Abholort | Packstation oder Abholstelle aus `status.description` | |
+| Nächste Schritte | `status.nextSteps` | |
+| Kundenreferenz | `details.references[]`, bevorzugt `customer-order-number` | |
+| Status-Standort | `status.location`, Ort und Land | |
 | Service | `service` | Diagnose |
-| Produkt | `details.product.productName` | – |
-| Anzahl Stücke | `details.totalNumberOfPieces` | – |
-| Gewicht | `details.weight.value` | – |
+| Produkt | `details.product.productName` | |
+| Anzahl Stücke | `details.totalNumberOfPieces` | |
+| Gewicht | `details.weight.value` | |
 | Gewichtseinheit | `details.weight.unitText` | Diagnose |
 | Herkunftsland | `origin.address.countryCode` | Diagnose |
-| Herkunftsort | `origin.address.addressLocality` | – |
+| Herkunftsort | `origin.address.addressLocality` | |
 | Zielland | `destination.address.countryCode` | Diagnose |
-| Zielort | `destination.address.addressLocality` | – |
-| Abholdatum | `pickUpDate`, nur mit echter Uhrzeit | – |
-| Abholtag | `pickUpDate` als Datum | – |
-| Geplante Zustellung | `estimatedDeliveryTimeFrame.estimatedFrom`, sonst `estimatedTimeOfDelivery` mit echter Uhrzeit | – |
-| Zustelltag | Zustelldatum als reines Datum | – |
-| Zustellprognose | `estimatedTimeOfDeliveryRemark` (Klartext von DHL) | – |
+| Zielort | `destination.address.addressLocality` | |
+| Abholdatum | `pickUpDate`, nur mit echter Uhrzeit | |
+| Abholtag | `pickUpDate` als Datum | |
+| Geplante Zustellung | `estimatedDeliveryTimeFrame.estimatedFrom`, sonst `estimatedTimeOfDelivery` mit echter Uhrzeit | |
+| Zustelltag | Zustelldatum ohne Uhrzeit | |
+| Zustellprognose | `estimatedTimeOfDeliveryRemark`, DHLs Klartext | |
 | Service-URL | `serviceUrl` | Diagnose |
 | Umleitungs-URL | `rerouteUrl` | Diagnose |
-| Rücksendung | `returnFlag` (Enum `yes`/`no`) | Diagnose |
+| Rücksendung | `returnFlag` als Enum `yes`/`no` | Diagnose |
 
-Zusätzlich existiert pro Konfigurationseintrag ein Dienst-Gerät „DHL Tracking"
-mit dem Diagnosesensor **API-Anfragen heute**. Dessen Attribute zeigen das
-Tagesbudget, den geschätzten Tagesverbrauch, die Anzahl Sendungen je Priorität
-(`imminent_shipments`, `transit_shipments`, `pre_transit_shipments`,
-`awaiting_pickup_shipments`) und das
-daraus resultierende Intervall je Priorität (`interval_minutes_imminent` usw.).
+Jeder Konfigurationseintrag hat außerdem ein Dienst-Gerät "DHL Tracking" mit
+dem Diagnosesensor "API-Anfragen heute". Seine Attribute zeigen das
+Tagesbudget, den geschätzten Tagesverbrauch, die Zahl der Sendungen je
+Priorität und das Intervall, das sich daraus je Priorität ergibt. Die
+Attribute heißen `imminent_shipments`, `transit_shipments`,
+`pre_transit_shipments`, `awaiting_pickup_shipments`,
+`interval_minutes_imminent` und so weiter.
 
 ### Übersichts-Sensoren
 
-Am Dienst-Gerät „DHL Tracking" hängen drei Sensoren, die alle Sendungen
+Am Dienst-Gerät "DHL Tracking" hängen fünf Entitäten, die alle Sendungen
 zusammenfassen:
 
-| Entity-ID (deutsche Oberfläche) | Wert |
+| Entity-ID bei deutscher Oberfläche | Wert |
 |---|---|
 | `sensor.dhl_tracking_offene_sendungen` | Anzahl Sendungen mit Status ≠ `delivered` |
-| `sensor.dhl_tracking_nachste_zustellung` | früheste konkrete Zustellzeit (`timestamp`) |
+| `sensor.dhl_tracking_nachste_zustellung` | früheste konkrete Zustellzeit als `timestamp` |
 | `sensor.dhl_tracking_api_anfragen_heute` | verbrauchtes Tagesbudget |
+| `binary_sensor.dhl_tracking_zustellung_heute_erwartet` | an, solange DHL heute noch ein Paket an die Tür bringen will |
+| `binary_sensor.dhl_tracking_abholung_wartet` | an, solange ein Paket in einer Packstation oder Abholstelle liegt |
 
-> Das Präfix ist `dhl_tracking_`, weil Home Assistant die Entity-ID aus dem
-> Gerätenamen („DHL Tracking") ableitet, und `nachste` ohne Umlaut, weil die
-> ID-Erzeugung `ä` zu `a` reduziert. Umbenennen geht jederzeit über die
-> Entitäts-Einstellungen.
+Die beiden Binärsensoren beantworten die Frage, die viele Automationen
+stellen, ohne dass jede selbst die Sendungsliste filtert. Ihr Attribut
+`shipments` nennt die betroffenen Sendungen mit `tracking_number` und `name`,
+bei "Abholung wartet" zusätzlich mit `pickup_location`.
 
-`offene_sendungen` trägt das Attribut `shipments` – eine Liste mit einem Objekt
+"Zustellung heute erwartet" zählt Pakete, deren Zustelltag heute ist und die
+noch nicht zugestellt sind. Pakete in der Packstation zählen nicht mit, auch
+wenn DHL bei ihnen den Tag der Packstation-Fahrt stehen lässt. Um Mitternacht
+rechnet der Sensor neu, ohne auf die nächste Abfrage zu warten. Ein Paket, das
+gestern hätte kommen sollen und noch keinen neuen Zustelltag hat, zählt nicht.
+
+> Home Assistant bildet die Entity-ID aus dem Gerätenamen "DHL Tracking",
+> daher das Präfix `dhl_tracking_`. Aus `ä` macht die ID-Erzeugung `a`, daher
+> `nachste`. Umbenennen kannst du jederzeit in den Entitäts-Einstellungen.
+
+`offene_sendungen` hat das Attribut `shipments`, eine Liste mit einem Objekt
 je offener Sendung:
 
 ```yaml
@@ -335,24 +471,29 @@ shipments:
     time_frame_from: "2026-09-23T13:20:00+02:00"
     time_frame_through: "2026-09-23T14:50:00+02:00"
     forecast_expired: false
+    pickup_location: null             # bei Packstation-Paketen der Abholort
+    drop_off_planned: false           # DHL hat den Ablageort angekündigt
     signature_required: true
     id_required: false
     services: ["signature"]
+    cash_on_delivery_amount: null     # bei Nachnahme der Betrag, z. B. 49.9
+    currency: null
 ```
 
-`nachste_zustellung` liefert die früheste **konkrete** Zustellzeit, die noch
-bevorsteht. Da DHL bei Paketen oft nur einen Tag kennt, tragen die Attribute
-zusätzlich die Tagesebene: `earliest_date`, `earliest_date_tracking_number`,
-`earliest_date_name`. Sendungen mit abgelaufener Prognose zählen nicht mehr als
-„nächste“ Zustellung, sondern stehen im Attribut `delayed_shipments`
-(`tracking_number`, `name`, `overdue_minutes`).
+`nachste_zustellung` zeigt die früheste konkrete Zustellzeit, die noch
+bevorsteht. DHL kennt bei Paketen oft nur den Tag, deshalb haben die Attribute
+auch die Tagesebene: `earliest_date`, `earliest_date_tracking_number` und
+`earliest_date_name`. Eine Sendung mit abgelaufener Prognose ist keine
+"nächste" Zustellung mehr. Sie steht stattdessen im Attribut
+`delayed_shipments` mit `tracking_number`, `name` und `overdue_minutes`.
 
-Beide Attributlisten werden bewusst **nicht** in der Datenbank aufgezeichnet.
+Die Recorder-Datenbank speichert diese Attributlisten nicht.
 
-### Zustellmerkmale (Unterschrift, Nachnahme, Wunschoptionen)
+### Zustellmerkmale
 
-Die Sensoren **Statuscode** und **Produkt** tragen die Zustellmerkmale
-strukturiert, damit ein Dashboard nicht den Produkttext parsen muss:
+Unterschrift, Nachnahme und Wunschoptionen stehen als eigene Felder an den
+Sensoren "Statuscode" und "Produkt". Ein Dashboard muss so keinen Produkttext
+zerlegen.
 
 ```yaml
 services: ["signature"]
@@ -369,33 +510,33 @@ currency: "EUR"
 | `cash_on_delivery` | Nachnahme | strukturiert |
 | `pickup`, `gogreen`, `priority` | gebuchte Zusatzleistungen | strukturiert |
 | `extra_insurance`, `direct_injection`, `import_fees` | gebuchte Zusatzleistungen | strukturiert |
-| `return` | Rücksendung (`returnFlag`) | strukturiert |
+| `return` | Rücksendung aus `returnFlag` | strukturiert |
 | `signature` | Empfängerunterschrift | Produkttext |
-| `ident_check` | Ident-Check / Postident | Produkttext |
+| `ident_check` | Ident-Check oder Postident | Produkttext |
 | `age_check` | Alterssichtprüfung | Produkttext |
 | `preferred_day` | Wunschtag | Produkttext |
-| `preferred_location` | Wunschort / Abstellgenehmigung | Produkttext |
+| `preferred_location` | Wunschort oder Abstellgenehmigung | Produkttext |
 | `preferred_neighbour` | Wunschnachbar | Produkttext |
-| `no_neighbour_delivery` | keine Nachbarschaftsabgabe / eigenhändig | Produkttext |
+| `no_neighbour_delivery` | keine Nachbarschaftsabgabe, eigenhändig | Produkttext |
 
 `signature_required` ist `true` bei Empfängerunterschrift, Ident-Check,
-Alterssichtprüfung und Nachnahme. `id_required` ist `true`, wenn ein Ausweis
-gezeigt werden muss (Ident-Check, Alterssichtprüfung).
+Alterssichtprüfung und Nachnahme. `id_required` ist `true`, wenn der Empfänger
+einen Ausweis zeigen muss, also bei Ident-Check und Alterssichtprüfung.
 
-**Warum teils Text-Parsing?** Das einzige strukturierte Feld der API ist
-`details.valueAddedServices.services[].serviceType`, und dessen Enum umfasst
-laut OpenAPI 1.5.6 nur `bulky`, `pickup`, `gogreen`, `priority`,
-`extraInsurance`, `directInjection`, `cashOnDelivery` und `importFees`.
-Empfängerunterschrift, Ident-Check und die Wunschoptionen liefert DHL
-ausschließlich im Freitext `details.product.productName`
-(`"DHL PAKET, Empfängerunterschrift"`). Das strukturierte Feld hat immer
-Vorrang; der Text wird nur für das ausgewertet, was es nicht abdecken kann.
-Nicht erkannte Fragmente landen unverändert in `services_raw`.
+Warum teilweise Text-Parsing? Das einzige strukturierte Feld der API ist
+`details.valueAddedServices.services[].serviceType`. Sein Enum umfasst laut
+OpenAPI 1.5.6 nur `bulky`, `pickup`, `gogreen`, `priority`, `extraInsurance`,
+`directInjection`, `cashOnDelivery` und `importFees`. Empfängerunterschrift,
+Ident-Check und die Wunschoptionen stehen nur im Freitext
+`details.product.productName`, etwa `"DHL PAKET, Empfängerunterschrift"`. Das
+strukturierte Feld hat immer Vorrang. Den Text wertet die Integration nur für
+das aus, was das Feld nicht abdeckt. Was sie nicht erkennt, landet unverändert
+in `services_raw`.
 
 ### Kundenreferenz und Bestellnummer
 
-`details.references[]` trägt die Nummern, unter denen eine Sendung gebucht
-wurde. Der Sensor **Kundenreferenz** zeigt die aussagekräftigste davon, in
+`details.references[]` enthält die Nummern, unter denen eine Sendung gebucht
+wurde. Der Sensor "Kundenreferenz" zeigt die aussagekräftigste davon, in
 dieser Reihenfolge: `customer-order-number`, `customer-reference`,
 `ecommerce-number`, `customer-confirmation-number`, `local-tracking-number`,
 `domestic-consignment-id`, `shipment-id`, `reference`.
@@ -409,7 +550,7 @@ references:
     number: "HB-1"
 ```
 
-Damit lässt sich eine Sendung einer Shop-Bestellung zuordnen, ohne über den
+So findest du die Sendung zu einer Shop-Bestellung, ohne über den
 Anzeigenamen zu raten:
 
 ```yaml
@@ -417,17 +558,17 @@ Anzeigenamen zu raten:
    | selectattr('customer_reference', 'eq', 'ORDER-4711') | first }}
 ```
 
-**Nicht veröffentlicht werden:** die Kontonummer-Typen
-`payer-account-number`, `shipper-account-number`, `receiver-account-number`
-sowie jeder Eintrag, den DHL über `@scope` als `secret` oder `sensitive`
-markiert. Die identifizieren ein Abrechnungskonto, nicht das Paket.
+Nicht veröffentlicht werden die Kontonummer-Typen `payer-account-number`,
+`shipper-account-number` und `receiver-account-number`, außerdem jeder
+Eintrag, den DHL über `@scope` als `secret` oder `sensitive` markiert. Diese
+Nummern gehören zu einem Abrechnungskonto, nicht zum Paket.
 
 ### Sendung umleiten
 
-Der Diagnosesensor **Umleitungs-URL** trägt `rerouteUrl`. DHL liefert das Feld
-laut Spec nur, *„if available for the current status of the shipment"* – seine
-Anwesenheit ist damit selbst ein Signal. Am Sensor **Statuscode** steht
-zusätzlich `reroute_available` als Bool.
+Der Diagnosesensor "Umleitungs-URL" zeigt `rerouteUrl`. Laut Spec liefert DHL
+das Feld nur, *"if available for the current status of the shipment"*. Dass es
+da ist, sagt also schon etwas. Am Sensor "Statuscode" steht zusätzlich
+`reroute_available` als Bool.
 
 ```yaml
 type: markdown
@@ -439,10 +580,9 @@ content: >-
 
 ### Weitere Statustexte
 
-DHL liefert bis zu vier Textvarianten zum selben Status. **Status** und
-**Statusbeschreibung** sind eigene Sensoren, **Nächste Schritte** ebenfalls;
-die beiden restlichen hängen als Attribute an **Statusbeschreibung** und
-**Statuscode**:
+DHL liefert bis zu vier Texte zum selben Status. "Status",
+"Statusbeschreibung" und "Nächste Schritte" sind eigene Sensoren. Die übrigen
+hängen als Attribute an "Statusbeschreibung" und "Statuscode":
 
 | Attribut | API-Feld |
 |---|---|
@@ -450,65 +590,65 @@ die beiden restlichen hängen als Attribute an **Statusbeschreibung** und
 | `status_remark` | `status.remark` |
 | `next_steps` | `status.nextSteps` |
 
-> Home Assistant lehnt States über 255 Zeichen ab. Längere Texte werden
-> gekürzt (erkennbar am `…`), der vollständige Text steht dann im Attribut
-> `full_value`.
+> Home Assistant lehnt States über 255 Zeichen ab. Die Integration kürzt
+> längere Texte und hängt `…` an. Der vollständige Text steht dann im
+> Attribut `full_value`.
 
-### Status „In Zustellung"
+### Status "In Zustellung"
 
-Der Sensor **Statuscode** kennt einen sechsten Wert `out_for_delivery`,
-zusätzlich zu den fünf von DHL dokumentierten. Der unveränderte API-Wert steht
-weiterhin im Attribut `status_code_api`.
+Der Sensor "Statuscode" kennt neben den fünf Werten, die DHL dokumentiert,
+den Wert `out_for_delivery`. Den unveränderten API-Wert findest du im
+Attribut `status_code_api`.
 
-**Woraus abgeleitet?** Aus dem strukturierten `estimatedDeliveryTimeFrame`:
-Ein Zustellfenster, das **am selben lokalen Tag beginnt und endet** und dessen
-Tag heute ist, ist die enge Tagesprognose, die DHL veröffentlicht, sobald ein
-Paket im Zustellfahrzeug liegt. Eine mehrtägige Spanne zählt bewusst nicht.
-Nach Fensterende bleibt der Status noch zwei Stunden bestehen – der Zusteller
-kann sich verspäten.
+Die Integration leitet ihn aus `estimatedDeliveryTimeFrame` ab. Ein
+Zustellfenster, das am selben lokalen Tag beginnt und endet, und zwar heute,
+ist die enge Tagesprognose, die DHL veröffentlicht, sobald ein Paket im
+Zustellfahrzeug liegt. Eine Spanne über mehrere Tage zählt nicht. Nach
+Fensterende bleibt der Status noch zwei Stunden, denn der Zusteller kann sich
+verspäten.
 
-**Warum nicht am Statustext?** DHLs Entwickler-Support schreibt, dass
-„Out for Delivery" zwar geplant, aber **noch nicht in der API verfügbar** ist,
-und zu den Statusbeschreibungen: *„we do not have any concrete information
+Warum nicht am Statustext? DHLs Entwickler-Support schreibt, "Out for
+Delivery" sei geplant, aber noch nicht in der API verfügbar. Zu den
+Statusbeschreibungen heißt es: *"we do not have any concrete information
 about that. It is completely depends on each division and their logic."*
-Der bei `parcel-de` auftauchende Wert `PO` ist weder in der OpenAPI-
-Spezifikation noch in einem Support-Artikel dokumentiert. Darauf zu matchen
-wäre Raterei auf undokumentierten, zudem lokalisierten Daten.
+Der Wert `PO`, der bei `parcel-de` auftaucht, steht weder in der
+OpenAPI-Spezifikation noch in einem Support-Artikel. Darauf zu matchen hieße,
+auf undokumentierten und übersetzten Daten zu raten.
 
-### Status „Verspätet"
+### Status "Verspätet"
 
-Die Entwickler-API zieht ein abgelaufenes Zustellfenster nicht nach. Ohne
-Gegenmaßnahme zeigt **Geplante Zustellung** bei einem verspäteten Paket also
-eine Uhrzeit, die längst vorbei ist. Deshalb:
+Die Entwickler-API zieht ein abgelaufenes Zustellfenster nicht nach. Bei
+einem verspäteten Paket zeigte "Geplante Zustellung" deshalb eine Uhrzeit, die
+längst vorbei war. Jetzt gilt:
 
-- **Geplante Zustellung** und **Zustelltag** tragen die Attribute
-  `forecast_expired` (`true`, sobald das Fenster bzw. der Zustelltag vorbei
-  ist) und `overdue_minutes`. DHLs Wert selbst bleibt sichtbar.
-- Der **Statuscode** wechselt zwei Stunden nach Ende der Prognose auf
-  `delayed` („Verspätet“) – zum selben Zeitpunkt, zu dem auch
-  `dhl_tracking_delivery_overdue` feuert und `out_for_delivery` endet. Bekommt
-  die Sendung eine neue Prognose, wechselt er zurück.
+- "Geplante Zustellung" und "Zustelltag" haben die Attribute
+  `forecast_expired` und `overdue_minutes`. `forecast_expired` wird `true`,
+  sobald das Fenster oder der Zustelltag vorbei ist. DHLs Wert bleibt sichtbar.
+- Zwei Stunden nach Ende der Prognose wechselt der Statuscode auf `delayed`,
+  angezeigt als "Verspätet". Im selben Moment feuert
+  `dhl_tracking_delivery_overdue` und `out_for_delivery` endet. Bekommt die
+  Sendung eine neue Prognose, wechselt der Status zurück.
 - Zugestellte und abholbereite Pakete gelten nie als verspätet.
 
 ### Packstation und Abholstellen
 
-Ein Paket, das in einer Packstation liegt, meldet bei DHL weiterhin
-`statusCode: transit` – bis es abgeholt ist, dann `delivered`. Unterscheiden
-lässt es sich nur über `statusDetailed`. Das ist ein undokumentierter, aber
-sprachunabhängiger Code aus drei Teilen; der erste benennt die Art des Scans:
+Ein Paket in der Packstation meldet bei DHL weiter `statusCode: transit`, bis
+es abgeholt ist. Erst dann kommt `delivered`. Unterscheiden lässt sich der
+Fall nur an `statusDetailed`. Dieser Code ist undokumentiert, hängt aber nicht
+von der Sprache ab. Er hat drei Teile, und der erste benennt die Art des Scans.
 
 | `statusDetailed` | Bedeutung | Statuscode |
 |---|---|---|
 | `LDTMV_PCKST_PO` | auf dem Weg zur Packstation | `transit` |
 | `HLDCC_LDPCK_LA` | liegt in der Packstation zur Abholung bereit | `ready_for_pickup` |
 
-Der Sensor **Statuscode** zeigt für die ganze `HLDCC_`-Gruppe den abgeleiteten
-Wert `ready_for_pickup`, beide Event-Entitäten haben dafür einen eigenen
-Event-Typ. Eine abholbereite Sendung wird selten abgefragt (Priorität
-„wartet auf Abholung"), denn bis zur Abholung ändert sich nichts mehr.
+Für die ganze `HLDCC_`-Gruppe zeigt der Statuscode `ready_for_pickup`, und
+beide Event-Entitäten haben dafür einen eigenen Event-Typ. Bis zur Abholung
+ändert sich nichts mehr, deshalb fragt die Integration abholbereite Pakete
+selten ab.
 
 DHL schreibt die Packstation als HTML-Link in die Statusbeschreibung. Der
-Sensor **Abholort** macht daraus Klartext:
+Sensor "Abholort" macht daraus Klartext:
 
 ```yaml
 state: "Packstation 205, Christian-Hülsmeyer-Str. 3, 27472 Cuxhaven"
@@ -519,13 +659,28 @@ locker_id: "205"
 url: "https://www.dhl.de/de/privatkunden/dhl-standorte-finden.html?address=27472:205&preferPackstation=true"
 ```
 
-Alle Beschreibungstexte – Sensoren, Attribute und Ereignisse – werden ohne HTML
-ausgegeben. Die Abholfrist liefert die API nicht.
+Sensoren, Attribute und Ereignisse geben alle Beschreibungstexte ohne HTML
+aus.
+
+Die Abholfrist liefert die API nicht. Die Integration schätzt sie aus dem
+ersten Packstation-Scan. DHL hält ein Paket
+[7 Kalendertage](https://www.paketda.de/empfangen/dhl-lagerfrist.html) in der
+Packstation, der Einlegetag zählt mit. Der Sensor "Abholort" und
+"Abholung wartet" haben dafür diese Attribute:
+
+```yaml
+waiting_since: "2026-10-01T12:33:00+02:00"
+days_waiting: 5
+estimated_pickup_deadline: "2026-10-07"   # letzter Tag zum Abholen
+```
+
+Wurde ein Paket nachträglich zur Packstation umgeleitet, gibt DHL 9 Tage.
+Das steht nicht in den Daten, die Schätzung ist dann zwei Tage zu kurz.
 
 ### Zustellort nach der Zustellung
 
-Sobald `statusCode` = `delivered` ist, tragen **Statuscode** und **Status**
-zusätzlich:
+Sobald `statusCode` den Wert `delivered` hat, bekommen "Statuscode" und
+"Status" diese Attribute:
 
 ```yaml
 delivered_to: "Erika Mustermann"        # aus details.proofOfDelivery.signed
@@ -537,19 +692,39 @@ delivery_location:
   service_point: "Packstation 123"      # falls Packstation/Filiale
   service_point_url: "https://www.dhl.de/..."
 proof_of_delivery_url: "https://webpod.dhl.com/pod?token=..."
+delivery_type: "drop_off"
 ```
 
-> **Datenschutzhinweis:** `delivered_to` kann den Namen eines Nachbarn
-> enthalten. Das Attribut existiert nur bei zugestellten Sendungen und
-> erscheint **nicht** in Ereignissen oder Logs. Vor der Zustellung wird nichts
-> veröffentlicht – insbesondere wird `details.receiver` (der Adressat) *nicht*
-> als `delivered_to` ausgegeben, denn das wäre geraten.
+`delivery_type` sagt, wie das Paket angekommen ist. Es steht auch im
+Ereignis `dhl_tracking_status_changed`, sodass eine Automation auf die
+Zustellung direkt darauf reagieren kann.
+
+| `delivery_type` | Bedeutung | Erkannt an |
+|---|---|---|
+| `drop_off` | am Ablageort abgelegt | `statusDetailed` beginnt mit `DLVRD_SECPL_` |
+| `picked_up` | aus Packstation oder Abholstelle abgeholt | ein früherer Scan meldete `ready_for_pickup` |
+| `null` | unbekannt, zum Beispiel an der Tür oder beim Nachbarn | kein bekannter Code |
+
+Für die Abgabe beim Nachbarn habe ich noch keinen Code gesehen. Die
+Integration rät deshalb nicht, sondern lässt den Wert leer.
+
+Schon vor der Zustellung kündigt DHL einen Ablageort an, in den beobachteten
+Fällen etwa eine Stunde vorher mit dem Code `ADVIS_PFLOC_DD`. Das Attribut
+`drop_off_planned` am Statuscode-Sensor und in `offene_sendungen` wird dann
+`true`. Ein Beispiel: Kamera oder Kontakt am Ablageort scharf schalten, bevor
+das Paket kommt.
+
+> **Datenschutz.** `delivered_to` kann den Namen eines Nachbarn enthalten.
+> Das Attribut gibt es nur bei zugestellten Sendungen, und es erscheint weder
+> in Ereignissen noch in Logs. Vor der Zustellung veröffentlicht die
+> Integration nichts davon. `details.receiver` ist der Adressat, nicht wer das
+> Paket angenommen hat, deshalb taucht er nie als `delivered_to` auf.
 
 ### Einzelne Tracking-Scans
 
-Die fünf dokumentierten Statuscodes verschlucken viel: Eine Sendung kann
-angekündigt, bearbeitet, in der Zielregion angekommen und ins Zustellfahrzeug
-geladen werden, während `statusCode` durchgehend `transit` bleibt.
+Die fünf dokumentierten Statuscodes verschlucken viel. Eine Sendung wird
+angekündigt, bearbeitet, erreicht die Zielregion und kommt ins
+Zustellfahrzeug, und `statusCode` bleibt die ganze Zeit `transit`.
 
 | Zeit | `status` | `statusCode` |
 |---|---|---|
@@ -571,21 +746,23 @@ location: "Bremen GVZ, DE"
 timestamp: "2026-09-23T00:38:00+02:00"
 ```
 
-Die Codes `VA`/`AA`/`EE`/`PO` sind **nicht dokumentiert** – DHL gibt an, sie
-hingen von der jeweiligen Division ab. Sie werden deshalb als Attribut
-durchgereicht, nicht als Event-Typ, damit ein unbekannter Code nichts bricht.
+DHL dokumentiert die Codes `VA`, `AA`, `EE` und `PO` nicht und sagt, sie
+hingen von der jeweiligen Division ab. Die Integration reicht sie deshalb als
+Attribut durch und macht keinen Event-Typ daraus. Ein unbekannter Code kann so
+nichts kaputt machen.
 
-### Event-Entität je Sendung
+### Event-Entitäten je Sendung
 
 Jede Sendung hat zwei Event-Entitäten mit den Event-Typen `pre_transit`,
-`transit`, `out_for_delivery`, `ready_for_pickup`, `delayed`, `delivered`, `failure` und `unknown`:
+`transit`, `out_for_delivery`, `ready_for_pickup`, `delayed`, `delivered`,
+`failure` und `unknown`:
 
 | Entität | Feuert |
 |---|---|
 | `event.<name>_sendungsstatus` | nur bei einem Statuswechsel |
 | `event.<name>_sendungsereignis` | bei jedem Tracking-Scan |
 
-Beide eignen sich als Automationstrigger:
+Beide eignen sich als Trigger:
 
 ```yaml
 triggers:
@@ -595,87 +772,82 @@ triggers:
     to: out_for_delivery
 ```
 
-Beim Start von Home Assistant wird **kein** Event ausgelöst – nur echte
+Beim Start von Home Assistant feuert keine der beiden. Nur echte
 Statusänderungen zählen.
 
 ### Zustellprognose
 
-DHL liefert die Zustellprognose je nach Geschäftsbereich unterschiedlich genau:
-mal als exakten Zeitpunkt, mal als Zeitfenster, meistens aber nur als
-Kalendertag – dann steht in `estimatedTimeOfDelivery` ein `00:00:00`, das
-*keine* Uhrzeitangabe ist. Deshalb sind es drei Sensoren:
+Wie genau DHL die Zustellung vorhersagt, hängt vom Geschäftsbereich ab. Mal
+kommt ein exakter Zeitpunkt, mal ein Zeitfenster, meistens nur ein
+Kalendertag. Im letzten Fall steht in `estimatedTimeOfDelivery` ein
+`00:00:00`, und das ist keine Uhrzeit. Deshalb gibt es drei Sensoren:
 
 | Sensor | Zeigt | Wenn DHL nur den Tag kennt |
 |---|---|---|
-| **Geplante Zustellung** (Zeitstempel) | Beginn des Zustellfensters, sonst echte Uhrzeit | `unknown` – es wird keine Uhrzeit erfunden |
-| **Zustelltag** (Datum) | „23. September 2026" | gefüllt |
-| **Zustellprognose** (Text) | DHLs eigener Klartext | gefüllt, sofern DHL ihn liefert |
+| Geplante Zustellung, Zeitstempel | Beginn des Zustellfensters, sonst echte Uhrzeit | `unknown`, die Integration erfindet keine Uhrzeit |
+| Zustelltag, Datum | "23. September 2026" | gefüllt |
+| Zustellprognose, Text | DHLs eigener Klartext | gefüllt, wenn DHL ihn liefert |
 
-Beide Zustell-Sensoren tragen die Rohdaten als Attribute:
-`time_frame_from`, `time_frame_through`, `remark` und
-`raw_estimated_time_of_delivery`.
+Die beiden ersten haben die Rohdaten als Attribute: `time_frame_from`,
+`time_frame_through`, `remark` und `raw_estimated_time_of_delivery`.
 
-Für **Abholdatum** gilt dasselbe: Der Zeitstempel bleibt leer, wenn DHL keine
-Uhrzeit liefert; **Abholtag** zeigt das Datum.
+Für "Abholdatum" gilt dasselbe. Der Zeitstempel bleibt leer, wenn DHL keine
+Uhrzeit liefert, und "Abholtag" zeigt das Datum.
 
-Der Sensor **Status** trägt zusätzlich das Attribut `events` mit den letzten
-zehn Sendungsereignissen: `timestamp` (zeitzonenbehaftet), `status`,
-`status_code`, `status_detailed`, `description` und `location` auf Stadtebene.
+Der Sensor "Status" hat zusätzlich das Attribut `events` mit den letzten zehn
+Sendungsereignissen: `timestamp` mit Zeitzone, `status`, `status_code`,
+`status_detailed`, `description` und `location` auf Stadtebene.
 
 ## API-Limits und Abfrageintervall
 
 Der kostenlose DHL-Entwicklertarif erlaubt laut
 [offizieller Dokumentation](https://developer.dhl.com/api-reference/shipment-tracking)
-**250 Aufrufe pro Tag und maximal einen Aufruf alle fünf Sekunden**.
+250 Aufrufe pro Tag und höchstens einen Aufruf alle fünf Sekunden.
 
-Die API kennt **keine Sammelabfrage**: `GET /shipments` akzeptiert laut
-OpenAPI-Spezifikation 1.5.6 (siehe
-[`docs/dhl-shipment-tracking-unified-openapi.yaml`](docs/dhl-shipment-tracking-unified-openapi.yaml))
-genau **eine** `trackingNumber` pro Request. Jede Sendung kostet also einen
-Aufruf pro Abfrage. Batch-Abfragen sind daher nicht implementiert.
+Eine Sammelabfrage gibt es nicht. `GET /shipments` akzeptiert laut
+OpenAPI-Spezifikation 1.5.6 genau eine `trackingNumber` pro Request, siehe
+[`docs/dhl-shipment-tracking-unified-openapi.yaml`](docs/dhl-shipment-tracking-unified-openapi.yaml).
+Jede Sendung kostet also einen Aufruf pro Abfrage.
 
 ### Priorität: Pakete in Zustellung werden häufiger abgefragt
 
-Nicht jede Sendung braucht dieselbe Aufmerksamkeit. Ein Paket, das heute noch
-kommen soll, ändert seinen Status im Stundentakt; eines, das der Absender
-gerade erst angekündigt hat, tagelang gar nicht. Die Integration verteilt das
-Tagesbudget deshalb **gewichtet**:
+Ein Paket, das heute noch kommen soll, ändert seinen Status im Stundentakt.
+Eines, das der Absender gerade erst angekündigt hat, tagelang nicht. Die
+Integration verteilt das Tagesbudget deshalb nach Gewicht:
 
 | Priorität | Bedingung | Gewicht | Untergrenze |
 |---|---|---:|---|
-| **in Zustellung** | Zustellprognose läuft gerade, steht in ≤ 8 h an oder ist ≤ 24 h überfällig | 6 | Intervall ÷ 3 |
-| **unterwegs** | `statusCode` = `transit`, `failure` oder `unknown` | 2 | Intervall |
-| **angekündigt** | `statusCode` = `pre-transit` | 1 | Intervall × 2 |
-| **wartet auf Abholung** | liegt in der Packstation (`ready_for_pickup`) | 1 | Intervall × 2 |
-| **zugestellt** | `statusCode` = `delivered` | – | 24 h bzw. nie |
+| in Zustellung | Zustellprognose läuft gerade, steht in ≤ 8 h an oder ist ≤ 24 h überfällig | 6 | Intervall ÷ 3 |
+| unterwegs | `statusCode` = `transit`, `failure` oder `unknown` | 2 | Intervall |
+| angekündigt | `statusCode` = `pre-transit` | 1 | Intervall × 2 |
+| wartet auf Abholung | liegt in der Packstation, `ready_for_pickup` | 1 | Intervall × 2 |
+| zugestellt | `statusCode` = `delivered` | 0 | 24 h oder nie |
 
-Eine Sendung in Zustellung wird also **dreimal so oft** abgefragt wie eine
-normal unterwegs befindliche und **sechsmal so oft** wie eine bloß angekündigte.
+Eine Sendung in Zustellung kommt also dreimal so oft dran wie eine normal
+unterwegs befindliche und sechsmal so oft wie eine bloß angekündigte.
 
 #### Warum die Zustellprognose und nicht der Statustext?
 
-Die Unified-API kennt **keinen** Statuscode für „in Zustellung". `StatusCode`
-ist in der Spezifikation ausdrücklich als *„high-level grouping statuses"* mit
-genau fünf Werten definiert. Die feineren Felder – `status`, `statusDetailed`,
-`description`, `remark`, `nextSteps` – sind durchweg `type: string` **ohne
-Enum** und werden in der Sprache geliefert, die über den `language`-Parameter
-angefordert wird. Auf `"In Zustellung"` zu matchen würde also brechen, sobald
-jemand die Sprache auf Englisch umstellt.
+Die Unified-API hat keinen Statuscode für "in Zustellung". Die Spezifikation
+definiert `StatusCode` ausdrücklich als *"high-level grouping statuses"* mit
+genau fünf Werten. Die feineren Felder `status`, `statusDetailed`,
+`description`, `remark` und `nextSteps` sind alle `type: string` ohne Enum,
+und DHL liefert sie in der Sprache, die der `language`-Parameter anfordert.
+Ein Match auf `"In Zustellung"` bräche, sobald jemand auf Englisch umstellt.
 
 Strukturiert und sprachunabhängig sind nur `estimatedTimeOfDelivery` und
-`estimatedDeliveryTimeFrame`. Genau diese beiden Felder bestimmen die
-Priorität. Eine Sendung ohne Prognose bleibt schlicht auf „unterwegs" – sie
-wird nie schlechter behandelt als vorher.
+`estimatedDeliveryTimeFrame`. Diese beiden Felder bestimmen die Priorität.
+Eine Sendung ohne Prognose bleibt auf "unterwegs" und wird nie schlechter
+behandelt als vorher.
 
-Die Kulanz von 24 Stunden nach dem Prognosezeitpunkt ist Absicht: Wenn die
-Zustellung angekündigt war und *nicht* stattgefunden hat, ist das genau der
-Moment, in dem man häufige Updates will.
+Die 24 Stunden Kulanz nach dem Prognosezeitpunkt sind Absicht. Wenn eine
+angekündigte Zustellung ausbleibt, will man gerade dann häufige Updates.
 
 ### Berechnung des Tagesverbrauchs
 
-Die Integration arbeitet mit einem eigenen Budget von **200 Aufrufen pro Tag**
-(Sicherheitsabstand zu den 250 von DHL, damit Einrichtung, Reauth und manuelle
-Aktualisierungen nie das Limit sprengen).
+Die Integration rechnet mit einem eigenen Budget von 200 Aufrufen pro Tag. Der
+Abstand zu DHLs 250 sorgt dafür, dass Einrichtung, Reauth und manuelle
+Aktualisierungen nie das Limit sprengen.
 
 ```
 Z = zugestellte Sendungen         → je 1 Aufruf/Tag (oder 0, wenn abgeschaltet)
@@ -688,10 +860,9 @@ Fair-Share-Intervall:          F(s) = 86400 / C(s)          [Sekunden]
 effektives Intervall = max(Untergrenze der Priorität, F(s))
 ```
 
-Da Σ C(s) = B gilt, ist der geplante Tagesverbrauch **per Konstruktion**
-höchstens `B + Z = 200`. Sind alle Sendungen gleich priorisiert, reduziert sich
-die Formel auf eine gleichmäßige Aufteilung – das Verhalten ohne
-Zustellprognose ist also unverändert.
+Weil Σ C(s) = B gilt, liegt der geplante Tagesverbrauch nie über
+`B + Z = 200`. Haben alle Sendungen dieselbe Priorität, teilt die Formel das
+Budget gleichmäßig auf. Ohne Zustellprognose ändert sich also nichts.
 
 Mit dem Standardintervall von 30 Minuten:
 
@@ -701,75 +872,75 @@ Mit dem Standardintervall von 30 Minuten:
 | 4× unterwegs | 30 min | 192 |
 | 5× unterwegs | 36 min | 200 |
 | 20× unterwegs | 144 min | 200 |
-| 1× **in Zustellung** | 10 min | 144 |
+| 1× in Zustellung | 10 min | 144 |
 | 1× in Zustellung + 4× unterwegs | 16,8 min / 50,4 min | 200 |
 | 2× in Zustellung + 8× unterwegs | 33,6 min / 100,8 min | 200 |
 | 1× in Zustellung + 5× unterwegs + 4× angekündigt | 24 / 72 / 144 min | 200 |
 | 3× unterwegs + 20× zugestellt | 30 min + 1×/Tag | 164 |
 
-Der Coordinator wacht so oft auf, wie es die **dringendste** Sendung verlangt –
-sonst könnte ein kürzeres Intervall nie greifen. Der Takt wird nach jedem
-Abfragezyklus neu bestimmt, weil sich die Priorität mit der Zustellprognose
-und mit der Uhrzeit ändert.
+Der Coordinator wacht so oft auf, wie es die dringendste Sendung verlangt.
+Sonst könnte ein kürzeres Intervall nie greifen. Nach jedem Abfragezyklus
+bestimmt er den Takt neu, weil sich die Priorität mit der Zustellprognose und
+mit der Uhrzeit ändert.
 
-**Der geplante Tagesverbrauch übersteigt 200 Aufrufe nie** – auch nicht bei 260
-Sendungen; dann wächst das Intervall entsprechend, statt das Budget zu
-überziehen. Ein harter Zähler bricht den Abfragezyklus zusätzlich ab, sobald
-das Budget erschöpft ist, und die Warteschlange ist nach Priorität sortiert:
-Sendungen in Zustellung werden zuerst bedient, zugestellte zuletzt.
+Mehr als 200 Aufrufe plant die Integration nie, auch nicht bei 260 Sendungen.
+Dann wächst eben das Intervall. Ein harter Zähler bricht den Abfragezyklus
+zusätzlich ab, sobald das Budget erschöpft ist. Die Warteschlange ist nach
+Priorität sortiert, Sendungen in Zustellung kommen zuerst dran, zugestellte
+zuletzt.
 
 Weitere Schutzmechanismen:
 
-- Zwischen zwei Aufrufen liegen mindestens **6 Sekunden** (DHL erlaubt einen
-  Aufruf alle 5 Sekunden).
-- Bei **HTTP 429** pausiert die Integration mindestens 15 Minuten, bei
-  wiederholten 429-Antworten verdoppelt sich die Pause bis maximal 6 Stunden.
-  Ein `Retry-After`-Header wird berücksichtigt, verkürzt die Pause aber nie
-  unter 15 Minuten.
-- Ein **404** (DHL kennt die Nummer nicht) führt nicht zu sofortigen
-  Wiederholungen: Die Entities werden `unavailable`, die nächste Abfrage
-  erfolgt erst im regulären Intervall.
-- Zähler und Zeitstempel der letzten Abfrage werden **persistent gespeichert**.
-  Häufige Neustarts von Home Assistant können das Tagesbudget also nicht
-  umgehen; nach einem Neustart sind die Sensorwerte sofort wieder da, ohne dass
-  ein API-Aufruf nötig ist.
+- Zwischen zwei Aufrufen liegen mindestens 6 Sekunden. DHL erlaubt einen
+  Aufruf alle 5 Sekunden.
+- Bei HTTP 429 pausiert die Integration mindestens 15 Minuten. Bei jeder
+  weiteren 429-Antwort verdoppelt sich die Pause, bis höchstens 6 Stunden.
+  Einen `Retry-After`-Header berücksichtigt sie, geht aber nie unter 15
+  Minuten.
+- Ein 404 bedeutet, dass DHL die Nummer nicht kennt. Die Integration fragt
+  dann nicht sofort erneut, sondern erst im regulären Intervall. Die Entities
+  werden `unavailable`, und solange DHL die Nummer noch nie gefunden hat,
+  erscheint ein Reparaturhinweis.
+- Zähler und Zeitpunkt der letzten Abfrage überstehen Neustarts. Häufiges
+  Neustarten umgeht das Tagesbudget also nicht. Die Sensorwerte sind nach
+  einem Neustart sofort wieder da, ohne API-Aufruf.
 
-Das Intervall lässt sich unter *Konfigurieren → Abfrage-Einstellungen* zwischen
-5 Minuten und 24 Stunden einstellen. Kürzere Werte werden vom Fair-Share-
-Intervall überschrieben, sobald mehrere Sendungen aktiv sind.
+Das Intervall stellst du unter *Konfigurieren → Abfrage-Einstellungen*
+zwischen 5 Minuten und 24 Stunden ein. Sind mehrere Sendungen aktiv,
+überschreibt das Fair-Share-Intervall kürzere Werte.
 
 ## Zugestellte Sendungen automatisch entfernen
 
-*Konfigurieren → Abfrage-Einstellungen → „Zugestellte Sendungen entfernen nach"*
+*Konfigurieren → Abfrage-Einstellungen → "Zugestellte Sendungen entfernen nach"*
 
 | Wert | Verhalten |
 |---|---|
-| `0` | Zugestellte Sendungen bleiben dauerhaft erhalten |
-| `n` | Eine Sendung wird entfernt, sobald ihre Zustellung `n` Tage zurückliegt |
+| `0` | Zugestellte Sendungen bleiben dauerhaft |
+| `n` | Eine Sendung verschwindet, sobald ihre Zustellung `n` Tage zurückliegt |
 
-**Standard ist 3 Tage.** Nach dem Update auf 0.4.0 räumt die Integration also
-von selbst auf. Wer das nicht möchte, stellt den Wert auf `0`.
+Der Standard ist 3 Tage. Seit 0.4.0 räumt die Integration also von selbst auf.
+Wer das nicht will, stellt den Wert auf `0`.
 
-Entfernt wird dasselbe wie bei `dhl_tracking.remove_shipment`: Eintrag im
-persistenten Speicher, Entities aus der Entity Registry und das Gerät. Das
-Ereignis `dhl_tracking_shipment_removed` wird gefeuert. Sendungen ohne
-Zustell-Zeitstempel werden nie automatisch entfernt.
+Das Aufräumen entfernt dasselbe wie `dhl_tracking.remove_shipment`, also den
+gespeicherten Eintrag, die Entities und das Gerät, und feuert
+`dhl_tracking_shipment_removed`. Sendungen ohne Zustell-Zeitstempel bleiben
+stehen.
 
-Die Aktion `dhl_tracking.remove_delivered_shipments` bleibt unverändert
-verfügbar, falls das Aufräumen lieber über eine eigene Automation laufen soll.
+Wer eigene Regeln will, ruft die Aktion `dhl_tracking.remove_delivered_shipments`
+in einer eigenen Automation auf.
 
 ## Die App zeigt andere Zeiten als Home Assistant
 
-Die DHL-App und die offizielle Entwickler-API sind **zwei verschiedene
-Datenquellen**. Die App kennt dich als angemeldeten Empfänger und greift auf
-einen internen Dienst zu; die Tracking-API liefert einen eigenen Stand, der
-hinterherhinken kann.
+Die DHL-App und die offizielle Entwickler-API sind zwei verschiedene
+Datenquellen. Die App kennt dich als angemeldeten Empfänger und fragt einen
+internen Dienst. Die Tracking-API hat einen eigenen Stand, der hinterherhinken
+kann.
 
-Ein nachgemessener Fall: Die App zeigte ein Zustellfenster von 14:30–16:00,
-die API lieferte zur selben Zeit 13:20–14:50 – und zwar identisch mit und ohne
-`recipientPostalCode`.
+Ein Fall, den ich nachgemessen habe: Die App zeigte ein Zustellfenster von
+14:30 bis 16:00. Die API lieferte zur selben Zeit 13:20 bis 14:50, egal ob mit
+oder ohne `recipientPostalCode`.
 
-Nachprüfen lässt sich das in einem Aufruf:
+Das lässt sich mit einem Aufruf nachprüfen:
 
 ```bash
 curl -s -H "DHL-API-Key: $KEY" \
@@ -778,22 +949,22 @@ curl -s -H "DHL-API-Key: $KEY" \
 print(d.get('estimatedDeliveryTimeFrame'), d.get('estimatedTimeOfDelivery'))"
 ```
 
-Kommt dort dasselbe heraus wie in Home Assistant, reicht die Integration
-korrekt durch. Häufigeres Abfragen hilft dann nicht – es würde nur öfter
-derselbe Stand geholt. Die API hat **kein Feld**, das ihr eigenes Alter
-verrät: `status.timestamp` ist der Zeitpunkt des Ereignisses, nicht der der
-letzten Aktualisierung.
+Kommt dort dasselbe heraus wie in Home Assistant, reicht die Integration die
+Daten korrekt durch. Häufigeres Abfragen hilft dann nicht, es holt nur öfter
+denselben Stand. Die API hat kein Feld, das ihr eigenes Alter verrät.
+`status.timestamp` ist der Zeitpunkt des Ereignisses, nicht der letzten
+Aktualisierung.
 
-An die App-Daten käme man nur über den inoffiziellen Endpunkt, den diese
-Integration bewusst nicht verwendet (siehe
-[Datenschutz und Funktionsgrenzen](#datenschutz-und-funktionsgrenzen)).
+An die App-Daten käme man nur über einen inoffiziellen Endpunkt, und den
+nutzt die Integration absichtlich nicht, siehe
+[Datenschutz und Funktionsgrenzen](#datenschutz-und-funktionsgrenzen).
 
-Die Kulanzfrist von zwei Stunden nach Fensterende federt das ab: Der Status
-bleibt `out_for_delivery`, auch wenn das gemeldete Fenster schon vorbei ist.
+Ein abgelaufenes Fenster markiert die Integration als `delayed`, siehe
+[Status "Verspätet"](#status-verspätet).
 
 ## Wann wurde zuletzt aktualisiert?
 
-Der Sensor **Statuscode** trägt die Abfragediagnose als Attribute:
+Der Sensor "Statuscode" hat die Abfragediagnose als Attribute:
 
 ```yaml
 last_polled: "2026-09-23T12:40:11+00:00"   # letzter Abrufversuch
@@ -804,13 +975,13 @@ last_error: null                            # z. B. "not_found", "api_error"
 rate_limit_backoff_until: null              # nur bei HTTP 429
 ```
 
-Damit lässt sich „warum steht da noch der alte Wert" ohne Debug-Logging klären:
+Damit klärst du "warum steht da noch der alte Wert" ohne Debug-Logging:
 
 | Beobachtung | Bedeutung |
 |---|---|
-| `poll_interval_minutes` ist 30 statt 10 | DHL liefert kein Zustellfenster, die Sendung gilt als normal unterwegs – prüfbar an `reroute_available` und am Attribut `time_frame_from` |
-| `last_polled` ist aktuell, `last_updated` alt | Der Abruf läuft, schlägt aber fehl – siehe `last_error` |
-| `rate_limit_backoff_until` gesetzt | HTTP 429, die Integration pausiert bis dahin |
+| `poll_interval_minutes` ist 30 statt 10 | DHL liefert kein Zustellfenster, die Sendung gilt als normal unterwegs. Prüfbar am Attribut `time_frame_from`. |
+| `last_polled` ist aktuell, `last_updated` alt | Der Abruf läuft, schlägt aber fehl. Siehe `last_error`. |
+| `rate_limit_backoff_until` ist gesetzt | HTTP 429, die Integration pausiert bis dahin |
 | `remaining_today` am API-Sensor ist 0 | Tagesbudget erschöpft |
 
 Ist die Entität `unavailable`, blendet Home Assistant alle Attribute aus. Dann
@@ -818,7 +989,7 @@ hilft *Geräte & Dienste → DHL Tracking → ⋮ → Diagnose herunterladen*.
 
 ## Datenmodell und Persistenz
 
-Jede Sendung wird strukturiert gespeichert:
+Jede Sendung ist so gespeichert:
 
 ```json
 {
@@ -829,137 +1000,145 @@ Jede Sendung wird strukturiert gespeichert:
 }
 ```
 
-**Speicherort: die Config-Entry-Options.** Home Assistant empfiehlt, vom
-Benutzer konfigurierbare Daten im Config Entry zu halten: Sie werden mit dem
-Eintrag gesichert und wiederhergestellt, sind über den Options Flow editierbar,
-lösen automatisch den Update-Listener aus und brauchen keine zweite
-Datenquelle, die auseinanderlaufen könnte. Aktionen und Options Flow schreiben
-deshalb beide über `hass.config_entries.async_update_entry(entry, options=…)`.
+Die Sendungen liegen in den Config-Entry-Options. Home Assistant empfiehlt,
+alles, was der Benutzer konfiguriert, im Config Entry zu halten. Dann sichert
+und restauriert Home Assistant die Daten mit dem Eintrag, der Options Flow
+kann sie bearbeiten, der Update-Listener reagiert automatisch, und es gibt
+keine zweite Datenquelle, die auseinanderlaufen könnte. Aktionen und Options
+Flow schreiben deshalb beide über
+`hass.config_entries.async_update_entry(entry, options=…)`.
 
-Ein zusätzlicher `Store` (`.storage/dhl_tracking.<entry_id>`) hält ausschließlich
-**nicht benutzerkonfigurierbaren Laufzeitzustand**: Zeitpunkt der letzten
-Abfrage je Sendung, verbrauchtes Tagesbudget, letzter bekannter Status und die
-zuletzt empfangene API-Antwort. Genau dafür ist `Store` gedacht – und es sorgt
-dafür, dass ein Neustart weder das Ratenlimit umgeht noch Statusereignisse
-doppelt auslöst.
+Ein zusätzlicher `Store` in `.storage/dhl_tracking.<entry_id>` hält nur den
+Laufzeitzustand, den niemand von Hand konfiguriert: Zeitpunkt der letzten
+Abfrage je Sendung, verbrauchtes Tagesbudget, letzter Status und die letzte
+API-Antwort. Dafür ist `Store` gedacht. Er sorgt auch dafür, dass ein Neustart
+weder das Ratenlimit umgeht noch Statusereignisse doppelt auslöst.
 
 ## Migration bestehender Installationen
 
-Bestehende Einträge werden automatisch von Schema-Version 1 auf 2 migriert:
+Bestehende Einträge migriert die Integration automatisch von Schema-Version 1
+auf 2:
 
-| vorher (Version 1) | nachher (Version 2) |
+| vorher, Version 1 | nachher, Version 2 |
 |---|---|
-| `data.api_key` | `data.api_key` (unverändert) |
-| `data.tracking_numbers` als Liste **oder** als kommagetrennter String | `options.shipments` als Liste strukturierter Objekte |
-| – | `options.scan_interval`, `options.language`, `options.poll_delivered` |
+| `data.api_key` | `data.api_key`, unverändert |
+| `data.tracking_numbers` als Liste oder als kommagetrennter String | `options.shipments` als Liste strukturierter Objekte |
+| gab es nicht | `options.scan_interval`, `options.language`, `options.poll_delivered` |
 
-- Die Nummern werden getrimmt, in Großbuchstaben gewandelt und dedupliziert.
-- Ungültige Fragmente (z. B. einzelne Ziffern aus einem fehlerhaft
-  gesplitteten String) werden verworfen, gültige Nummern gehen nicht verloren.
-- Die Unique IDs der Entities (`dhl_tracking_<nummer>_<sensor>`) bleiben
-  identisch. **Bestehende Entity-IDs, Verlaufsdaten und Automatisierungen
-  funktionieren weiter.**
+- Die Migration trimmt die Nummern, wandelt sie in Großbuchstaben und
+  entfernt Duplikate.
+- Ungültige Fragmente wie einzelne Ziffern aus einem falsch zerlegten String
+  fallen weg. Gültige Nummern gehen nicht verloren.
+- Die Unique IDs der Entities, `dhl_tracking_<nummer>_<sensor>`, bleiben
+  gleich. Entity-IDs, Verlaufsdaten und Automationen funktionieren weiter.
 
 ### Was sich für bestehende Nutzer ändert
 
-- Die Sensoren gehören jetzt zu einem **Gerät pro Sendung**. Der angezeigte
-  Name setzt sich aus Gerätename und Sensorname zusammen; die Entity-ID bleibt
-  unverändert.
-- **Rücksendung** liefert `yes`/`no` statt der fest deutschen Werte `Ja`/`Nein`
-  (die Anzeige ist jetzt übersetzt). Templates, die auf `"Ja"` prüfen, müssen
-  auf `"yes"` umgestellt werden.
-- **Zeitstempel-Sensoren** liefern jetzt echte, zeitzonenbehaftete
-  Datumswerte statt roher Zeichenketten.
-- **Geplante Zustellung** und **Abholdatum** zeigen keine erfundene Uhrzeit
-  mehr. Liefert DHL nur einen Kalendertag, bleiben diese Zeitstempel leer und
-  die neuen Sensoren **Zustelltag** / **Abholtag** tragen das Datum.
-  Automationen, die bisher auf `00:00` gerechnet haben, sollten auf den
-  jeweiligen Datums-Sensor umgestellt werden.
-- Die Debug-Attribute `api_path` und `raw_value` entfallen; stattdessen gibt es
-  vollständige, redigierte **Diagnosedaten** pro Konfigurationseintrag.
-- Das Standardintervall ist 30 Minuten statt 10 Minuten (siehe API-Limits).
-- Seit 0.4.0 ist **„Zugestellte Sendungen entfernen nach" auf 3 Tage
-  vorbelegt** – zugestellte Sendungen verschwinden also automatisch. Auf `0`
-  stellen, um das abzuschalten.
-- Seit 0.4.0 melden Sendungen im Zustellfahrzeug den Statuscode
-  `out_for_delivery` statt `transit`. Dashboards, die auf `transit` filtern,
-  sollten beide Werte berücksichtigen; der rohe API-Wert steht im Attribut
-  `status_code_api`.
-- `time_frame_from` / `time_frame_through` sind seit 0.4.0
-  zeitzonenbehaftet. Die unveränderten API-Strings stehen unter
-  `raw_time_frame_from` / `raw_time_frame_through`.
+- Die Sensoren gehören jetzt zu einem Gerät pro Sendung. Der angezeigte Name
+  setzt sich aus Gerätename und Sensorname zusammen, die Entity-ID bleibt.
+- "Rücksendung" liefert `yes`/`no` statt der fest deutschen Werte `Ja`/`Nein`,
+  die Anzeige ist übersetzt. Templates, die auf `"Ja"` prüfen, müssen auf
+  `"yes"` umgestellt werden.
+- Zeitstempel-Sensoren liefern echte Datumswerte mit Zeitzone statt roher
+  Zeichenketten.
+- "Geplante Zustellung" und "Abholdatum" erfinden keine Uhrzeit mehr. Kennt
+  DHL nur den Kalendertag, bleiben diese Zeitstempel leer, und die neuen
+  Sensoren "Zustelltag" und "Abholtag" haben das Datum. Automationen, die mit
+  `00:00` gerechnet haben, sollten auf den Datums-Sensor umsteigen.
+- Die Debug-Attribute `api_path` und `raw_value` gibt es nicht mehr. Dafür hat
+  jeder Konfigurationseintrag vollständige, redigierte Diagnosedaten.
+- Das Standardintervall ist 30 statt 10 Minuten, siehe API-Limits.
+- Seit 0.4.0 steht "Zugestellte Sendungen entfernen nach" auf 3 Tagen.
+  Zugestellte Sendungen verschwinden also automatisch. Mit `0` schaltest du
+  das ab.
+- Seit 0.4.0 melden Sendungen im Zustellfahrzeug `out_for_delivery` statt
+  `transit`. Dashboards, die auf `transit` filtern, sollten beide Werte
+  berücksichtigen. Der rohe API-Wert steht im Attribut `status_code_api`.
+- `time_frame_from` und `time_frame_through` haben seit 0.4.0 eine Zeitzone.
+  Die unveränderten API-Strings stehen in `raw_time_frame_from` und
+  `raw_time_frame_through`.
 
 ## Datenschutz und Funktionsgrenzen
 
-**Was die Integration nicht tut** – bewusst und dauerhaft:
+Diese Dinge tut die Integration nicht, und das bleibt so:
 
-- kein Login in ein privates „Post & DHL"-Konto
+- kein Login in ein privates "Post & DHL"-Konto
 - kein Scraping der DHL-Webseite
 - keine inoffiziellen Live-Tracking-Endpunkte
-- keine Fahrzeugposition, keine „verbleibenden Stopps"
+- keine Fahrzeugposition, keine "verbleibenden Stopps"
 - keine Speicherung privater DHL-Zugangsdaten
 
-Verwendet wird ausschließlich die offiziell dokumentierte Tracking-API mit einem
+Sie nutzt nur die offiziell dokumentierte Tracking-API mit einem
 Entwickler-API-Schlüssel.
 
-**Umgang mit Daten:**
+So geht sie mit Daten um:
 
-- Der API-Schlüssel steht ausschließlich im `DHL-API-Key`-Request-Header. Er
-  erscheint nicht in Logs, nicht in Fehlermeldungen, nicht in Ereignissen und
-  ist in den Diagnosedaten redigiert. Bei einer 401-Antwort wird der Body nicht
-  gelesen, weil er Anfragedetails spiegeln könnte.
-- Als Unique ID des Config Entry dient ein nicht umkehrbarer SHA-256-Fingerprint
-  des Schlüssels, nicht der Schlüssel selbst.
-- Ereignisse enthalten nur Sendungsnummer, Anzeigename und Status.
+- Der API-Schlüssel steht nur im Request-Header `DHL-API-Key`. Er erscheint
+  nicht in Logs, Fehlermeldungen oder Ereignissen, und die Diagnosedaten
+  redigieren ihn. Bei einer 401-Antwort liest die Integration den Body nicht,
+  weil er Anfragedetails spiegeln könnte.
+- Die Unique ID des Config Entry ist ein SHA-256-Fingerprint des Schlüssels,
+  nicht der Schlüssel selbst.
+- Ereignisse enthalten Sendungsnummer, Anzeigename, Status, DHLs
+  Beschreibungstext und den Ort auf Stadtebene. Bei Packstation-Paketen nennt
+  der Text die Adresse der Packstation. Empfängernamen enthalten sie nie.
 - Standortangaben in Entity-Attributen sind auf Stadt und Land reduziert.
-- Diagnosedaten redigieren Empfänger, Absender, Zustellnachweise und
+  Die Ausnahme ist der Abholort, weil man die Packstation sonst nicht findet.
+- Die Diagnosedaten redigieren Empfänger, Absender, Zustellnachweise und
   Postleitzahlen.
-- Die rohe API-Antwort wird lokal im Home-Assistant-`Store` zwischengespeichert,
-  damit Neustarts kein Kontingent verbrauchen. Sie verlässt das System nicht.
+- Die rohe API-Antwort liegt lokal im `Store` von Home Assistant, damit
+  Neustarts kein Kontingent kosten. Sie verlässt das System nicht.
 
 ## Fehlerbehebung
 
-| Symptom | Ursache / Abhilfe |
+| Symptom | Ursache und Abhilfe |
 |---|---|
-| Entities sind `unavailable`, Reparaturhinweis „DHL kennt die Sendung nicht" | DHL hat die Nummer noch nie gefunden. Meist ein Tippfehler (ein Zeichen zu viel oder zu wenig); frisch aufgegebene Sendungen erscheinen aber auch oft erst nach einigen Stunden. Der Hinweis verschwindet, sobald DHL die Sendung kennt. |
-| „Die Prüfziffer stimmt nicht" beim Hinzufügen | 20-stellige Paketnummern (`00340…`) enthalten eine Prüfziffer. Die Nummer ist vertippt. |
-| Reauth-Hinweis in der Oberfläche | Der API-Schlüssel wurde abgelehnt. Neuen Schlüssel über den Reauth-Dialog eintragen. |
-| Sensor „API-Anfragen heute" bei 200 | Das Tagesbudget ist erschöpft. Intervall verlängern oder zugestellte Sendungen entfernen. |
-| Paket in Zustellung wird nicht häufiger abgefragt | DHL liefert für diese Sendung keine `estimatedTimeOfDelivery`. Ohne Prognose bleibt sie auf „unterwegs“ – nachprüfbar über das Attribut `imminent_shipments`. |
-| App zeigt andere Zustellzeiten als HA | Zwei verschiedene Datenquellen – siehe [oben](#die-app-zeigt-andere-zeiten-als-home-assistant) |
-| Unvollständige Daten bei DHL-Paket (Deutschland) | Empfänger-PLZ ergänzen – DHL liefert den vollen Datensatz für `parcel-de` nur mit `recipientPostalCode`. |
+| Entities sind `unavailable`, Reparaturhinweis "DHL kennt die Sendung nicht" | DHL hat die Nummer noch nie gefunden. Meist ist es ein Tippfehler, ein Zeichen zu viel oder zu wenig. Frisch aufgegebene Sendungen erscheinen aber oft auch erst nach einigen Stunden. Der Hinweis verschwindet, sobald DHL die Sendung kennt. |
+| "Die Prüfziffer stimmt nicht" beim Hinzufügen | 20-stellige Paketnummern wie `00340…` enthalten eine Prüfziffer. Die Nummer ist vertippt. |
+| Reauth-Hinweis in der Oberfläche | DHL hat den API-Schlüssel abgelehnt. Neuen Schlüssel über den Reauth-Dialog eintragen. |
+| Sensor "API-Anfragen heute" steht bei 200 | Das Tagesbudget ist erschöpft. Intervall verlängern oder zugestellte Sendungen entfernen. |
+| Paket in Zustellung wird nicht häufiger abgefragt | DHL liefert für diese Sendung keine `estimatedTimeOfDelivery`. Ohne Prognose bleibt sie auf "unterwegs", nachprüfbar am Attribut `imminent_shipments`. |
+| App zeigt andere Zustellzeiten als Home Assistant | Zwei verschiedene Datenquellen, siehe [oben](#die-app-zeigt-andere-zeiten-als-home-assistant) |
+| Unvollständige Daten bei DHL-Paket in Deutschland | Empfänger-PLZ ergänzen. Für `parcel-de` liefert DHL den vollen Datensatz nur mit `recipientPostalCode`. |
 
-Für Fehlerberichte bitte die **Diagnosedaten** des Eintrags herunterladen
-(*Geräte & Dienste → DHL Tracking → ⋮ → Diagnose herunterladen*) – sie sind
-bereits redigiert.
+Für Fehlerberichte lade bitte die Diagnosedaten des Eintrags herunter, unter
+*Geräte & Dienste → DHL Tracking → ⋮ → Diagnose herunterladen*. Sie sind schon
+redigiert.
+
+Die Diagnosedaten enthalten auch `observed_status_codes`: jeden
+`statusDetailed`-Code, den die Integration je gesehen hat, mit einem
+Beispieltext und dem ersten und letzten Auftreten. Die Liste bleibt erhalten,
+wenn die Sendung längst entfernt ist. Weil DHL diese Codes nicht dokumentiert,
+ist das die Grundlage, um neue Fälle wie die Abgabe beim Nachbarn zu erkennen.
+Die Beispieltexte stammen von DHL und können Ortsangaben enthalten, etwa die
+Adresse einer Packstation.
 
 ## HACS-Standardstore
 
-Die Integration wird als **Custom Repository** installiert (siehe oben). Dafür
-ist keine HACS-Validierung nötig.
+Die Integration wird als Custom Repository installiert, siehe oben. Dafür
+braucht es keine HACS-Validierung.
 
-Für eine Aufnahme in den HACS-**Standardstore** müssten zusätzlich vier Punkte
-erfüllt sein, die nichts mit dem Code zu tun haben und deshalb im CI-Workflow
-über `ignore:` übersprungen werden:
+Für den HACS-Standardstore fehlen vier Punkte. Keiner davon hat mit dem Code
+zu tun, deshalb überspringt der CI-Workflow sie per `ignore:`.
 
 | Prüfung | Was fehlt |
 |---|---|
 | `description` | Repository-Beschreibung in den GitHub-Einstellungen |
 | `topics` | Mindestens ein Repository-Topic, z. B. `home-assistant`, `hacs`, `dhl` |
 | `issues` | Issues müssen im Repository aktiviert sein |
-| `brands` | Markenlogo (siehe unten) |
+| `brands` | Markenlogo, siehe unten |
 
-Die `brands`-Prüfung sucht zuerst nach
-`custom_components/dhl_tracking/brand/icon.png` (nur Existenz, keine
-Größenprüfung) und fragt sonst `brands.home-assistant.io/domains.json` ab.
-`dhl_tracking` ist dort aktuell in keinem der 4232 Custom-Domains gelistet.
+Die `brands`-Prüfung sucht zuerst
+`custom_components/dhl_tracking/brand/icon.png` und prüft dabei nur, ob die
+Datei existiert. Sonst fragt sie `brands.home-assistant.io/domains.json` ab.
+Unter den 4232 Custom-Domains dort fehlt `dhl_tracking` bisher.
 
-Für einen Beitrag an [home-assistant/brands](https://github.com/home-assistant/brands)
-gelten: `custom_integrations/dhl_tracking/icon.png` mit 256×256 px und
-`icon@2x.png` mit 512×512 px, PNG, Transparenz bevorzugt. Wichtig: Custom
-Integrations dürfen **keine** Home-Assistant-Markenbilder verwenden, und ein
-nachgebautes DHL-Logo wäre eine Markenrechtsfrage – hier wird bewusst kein
-Asset erfunden.
+Ein Beitrag an [home-assistant/brands](https://github.com/home-assistant/brands)
+braucht `custom_integrations/dhl_tracking/icon.png` mit 256×256 px und
+`icon@2x.png` mit 512×512 px, als PNG, am besten transparent. Custom
+Integrations dürfen keine Home-Assistant-Markenbilder verwenden, und ein
+nachgebautes DHL-Logo wäre ein Markenrechtsproblem. Ich erfinde hier deshalb
+kein Logo.
 
 ## Entwicklung
 
@@ -972,12 +1151,12 @@ python3.13 -m venv .venv
 .venv/bin/pytest
 ```
 
-Die Tests laufen vollständig gegen Mock-Antworten und Home Assistants
-`aioclient_mock`; **die echte DHL-API wird nie aufgerufen**.
+Die Tests laufen nur gegen Mock-Antworten und Home Assistants
+`aioclient_mock`. Die echte DHL-API rufen sie nie auf.
 
-`scripts/dhl_cli.py` ist ein eigenständiges Hilfsskript zum manuellen Abfragen
-einer Sendungsnummer (benötigt `requirements.txt`) und ist nicht Teil der
-Integration.
+`scripts/dhl_cli.py` ist ein eigenständiges Skript, mit dem du eine
+Sendungsnummer von Hand abfragen kannst. Es braucht `requirements.txt` und
+gehört nicht zur Integration.
 
 ## Lizenz
 

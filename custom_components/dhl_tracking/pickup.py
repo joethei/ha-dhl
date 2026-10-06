@@ -1,4 +1,4 @@
-"""Packstation and pickup point support.
+"""Packstation, pickup point and drop-off location support.
 
 A parcel that waits in a Packstation keeps ``statusCode: transit`` until it is
 collected. What sets it apart is ``statusDetailed`` and a description that
@@ -18,7 +18,15 @@ from html.parser import HTMLParser
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-from .const import READY_FOR_PICKUP_DETAIL_PREFIX, STATUS_CODE_TRANSIT
+from .const import (
+    DELIVERY_TYPE_DROP_OFF,
+    DELIVERY_TYPE_PICKED_UP,
+    DROP_OFF_DELIVERED_DETAIL_PREFIX,
+    DROP_OFF_PLANNED_DETAIL_PREFIX,
+    READY_FOR_PICKUP_DETAIL_PREFIX,
+    STATUS_CODE_DELIVERED,
+    STATUS_CODE_TRANSIT,
+)
 
 
 def is_ready_for_pickup(status: Any) -> bool:
@@ -34,6 +42,54 @@ def is_ready_for_pickup(status: Any) -> bool:
         status.get("statusCode") == STATUS_CODE_TRANSIT
         and isinstance(detailed, str)
         and detailed.startswith(READY_FOR_PICKUP_DETAIL_PREFIX)
+    )
+
+
+def _detail_starts_with(entry: Any, prefix: str) -> bool:
+    detailed = entry.get("statusDetailed") if isinstance(entry, dict) else None
+    return isinstance(detailed, str) and detailed.startswith(prefix)
+
+
+def _events(data: Any) -> list[Any]:
+    events = data.get("events") if isinstance(data, dict) else None
+    return events if isinstance(events, list) else []
+
+
+def delivery_type(data: Any) -> str | None:
+    """Return how a delivered shipment reached the recipient, if known.
+
+    ``drop_off`` comes straight from the delivery scan. ``picked_up`` is
+    inferred: a shipment that once waited in a Packstation or at a pickup
+    point and is delivered now was collected there.
+    """
+    if not isinstance(data, dict):
+        return None
+    status = data.get("status")
+    if not isinstance(status, dict) or status.get("statusCode") != (
+        STATUS_CODE_DELIVERED
+    ):
+        return None
+    if _detail_starts_with(status, DROP_OFF_DELIVERED_DETAIL_PREFIX):
+        return DELIVERY_TYPE_DROP_OFF
+    if any(is_ready_for_pickup(event) for event in _events(data)):
+        return DELIVERY_TYPE_PICKED_UP
+    return None
+
+
+def drop_off_planned(data: Any) -> bool:
+    """Return whether DHL announced a delivery to the drop-off location.
+
+    Only for shipments that are still on their way - once delivered,
+    :func:`delivery_type` says where the parcel actually went.
+    """
+    if not isinstance(data, dict):
+        return False
+    status = data.get("status")
+    if isinstance(status, dict) and status.get("statusCode") == STATUS_CODE_DELIVERED:
+        return False
+    return any(
+        _detail_starts_with(event, DROP_OFF_PLANNED_DETAIL_PREFIX)
+        for event in _events(data)
     )
 
 

@@ -104,6 +104,29 @@ STATUS_CODE_OUT_FOR_DELIVERY: Final = "out_for_delivery"
 STATUS_CODE_READY_FOR_PICKUP: Final = "ready_for_pickup"
 READY_FOR_PICKUP_DETAIL_PREFIX: Final = "HLDCC_"
 
+# Delivery to a drop-off location ("Ablageort"), observed on DHL Paket:
+# `ADVIS_PFLOC_DD` announces it about an hour ahead ("Ablageort als
+# Empfangsoption vorgemerkt"), `DLVRD_SECPL_ZU` reports the delivery there.
+DROP_OFF_PLANNED_DETAIL_PREFIX: Final = "ADVIS_PFLOC_"
+DROP_OFF_DELIVERED_DETAIL_PREFIX: Final = "DLVRD_SECPL_"
+
+# Values of the `delivery_type` attribute. Only what the payload proves is
+# reported; a delivery to a neighbour has no known code yet and stays `None`.
+DELIVERY_TYPE_DROP_OFF: Final = "drop_off"
+DELIVERY_TYPE_PICKED_UP: Final = "picked_up"
+
+# DHL keeps a parcel in a Packstation for 7 calendar days, the day it was
+# placed included; then it goes back to the sender. Parcels rerouted to a
+# Packstation get 9 days, which the payload does not reveal - so the
+# deadline derived from this is an estimate.
+PACKSTATION_STORAGE_DAYS: Final = 7
+
+# `statusDetailed` codes are undocumented. Every code seen is remembered for
+# the diagnostics, so that new cases (neighbour, return, ...) can be mapped
+# from real data later. Capped to keep the store small.
+MAX_OBSERVED_STATUS_CODES: Final = 200
+MAX_OBSERVED_DESCRIPTION_LENGTH: Final = 200
+
 # Derived on top of `transit` as well: the delivery forecast passed more than
 # `DELIVERY_OVERDUE_AFTER_HOURS` ago and the parcel still has not arrived. The
 # developer API does not move an expired delivery window, so without this a

@@ -81,6 +81,11 @@ async def async_get_config_entry_diagnostics(
                 }
                 for state in coordinator.states.values()
             ],
+            # Every undocumented `statusDetailed` code seen so far, kept even
+            # after the shipment is gone, to map new cases from real data.
+            "observed_status_codes": dict(
+                sorted(coordinator.observed_status_codes.items())
+            ),
         },
         TO_REDACT,
     )

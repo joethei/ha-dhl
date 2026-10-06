@@ -346,8 +346,13 @@ async def test_status_change_event(
 
     events = async_capture_events(hass, EVENT_STATUS_CHANGED)
 
+    # The scan happened 37 minutes before the poll found it.
+    scanned = (dt_util.now() - timedelta(minutes=37)).replace(microsecond=0)
     shipment_responses[TRACKING_NUMBER] = shipment_payload(
-        TRACKING_NUMBER, status="Delivered", status_code="delivered"
+        TRACKING_NUMBER,
+        status="Delivered",
+        status_code="delivered",
+        timestamp=scanned.isoformat(),
     )
     coordinator.states[TRACKING_NUMBER].last_polled = None
     await coordinator.async_refresh()
@@ -363,6 +368,9 @@ async def test_status_change_event(
         "old_status_code_api": "transit",
         "new_status_code_api": "delivered",
         "description": "The shipment is on its way.",
+        "delivery_type": None,
+        "timestamp": scanned.isoformat(),
+        "delay_minutes": 37,
     }
 
     # An unchanged status does not fire another event.
@@ -424,6 +432,9 @@ async def test_events_contain_no_personal_data(
         "old_status_code_api",
         "new_status_code_api",
         "description",
+        "delivery_type",
+        "timestamp",
+        "delay_minutes",
     }
     payload = str(events[0].data)
     assert "Erika Mustermann" not in payload

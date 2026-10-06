@@ -53,6 +53,8 @@ async def test_setup_without_tracking_numbers(
         f"{DOMAIN}_{entry.entry_id}_api_requests_today",
         f"{DOMAIN}_{entry.entry_id}_open_shipments",
         f"{DOMAIN}_{entry.entry_id}_next_delivery",
+        f"{DOMAIN}_{entry.entry_id}_delivery_expected_today",
+        f"{DOMAIN}_{entry.entry_id}_pickup_waiting",
     }
 
 
