@@ -13,6 +13,7 @@ Assistant noch eine Neueingabe des API-Schlüssels ist nötig.
 - 📦 Ein Gerät pro Sendung mit 25 Sensoren und einer Event-Entität, gruppiert in der Home-Assistant-Oberfläche
 - 🏷️ Zustellmerkmale strukturiert: `signature_required`, `id_required`, `services`, Nachnahmebetrag
 - 🚚 Eigener Status `out_for_delivery`, abgeleitet aus dem Zustellfenster
+- ⏰ Eigener Status `delayed`, wenn DHLs Zustellprognose abgelaufen ist
 - 🏧 Eigener Status `ready_for_pickup` und Sensor **Abholort** für Pakete in der Packstation
 - 🔎 Prüfziffer-Kontrolle für 20-stellige Paketnummern und Reparaturhinweis bei unbekannten Nummern
 - ➕ `dhl_tracking.add_shipment` / `dhl_tracking.remove_shipment` /
@@ -333,15 +334,18 @@ shipments:
     estimated_delivery_date: "2026-09-23"
     time_frame_from: "2026-09-23T13:20:00+02:00"
     time_frame_through: "2026-09-23T14:50:00+02:00"
+    forecast_expired: false
     signature_required: true
     id_required: false
     services: ["signature"]
 ```
 
-`nachste_zustellung` liefert die früheste **konkrete** Zustellzeit. Da DHL bei
-Paketen oft nur einen Tag kennt, tragen die Attribute zusätzlich die
-Tagesebene: `earliest_date`, `earliest_date_tracking_number`,
-`earliest_date_name`.
+`nachste_zustellung` liefert die früheste **konkrete** Zustellzeit, die noch
+bevorsteht. Da DHL bei Paketen oft nur einen Tag kennt, tragen die Attribute
+zusätzlich die Tagesebene: `earliest_date`, `earliest_date_tracking_number`,
+`earliest_date_name`. Sendungen mit abgelaufener Prognose zählen nicht mehr als
+„nächste“ Zustellung, sondern stehen im Attribut `delayed_shipments`
+(`tracking_number`, `name`, `overdue_minutes`).
 
 Beide Attributlisten werden bewusst **nicht** in der Datenbank aufgezeichnet.
 
@@ -471,6 +475,21 @@ Der bei `parcel-de` auftauchende Wert `PO` ist weder in der OpenAPI-
 Spezifikation noch in einem Support-Artikel dokumentiert. Darauf zu matchen
 wäre Raterei auf undokumentierten, zudem lokalisierten Daten.
 
+### Status „Verspätet"
+
+Die Entwickler-API zieht ein abgelaufenes Zustellfenster nicht nach. Ohne
+Gegenmaßnahme zeigt **Geplante Zustellung** bei einem verspäteten Paket also
+eine Uhrzeit, die längst vorbei ist. Deshalb:
+
+- **Geplante Zustellung** und **Zustelltag** tragen die Attribute
+  `forecast_expired` (`true`, sobald das Fenster bzw. der Zustelltag vorbei
+  ist) und `overdue_minutes`. DHLs Wert selbst bleibt sichtbar.
+- Der **Statuscode** wechselt zwei Stunden nach Ende der Prognose auf
+  `delayed` („Verspätet“) – zum selben Zeitpunkt, zu dem auch
+  `dhl_tracking_delivery_overdue` feuert und `out_for_delivery` endet. Bekommt
+  die Sendung eine neue Prognose, wechselt er zurück.
+- Zugestellte und abholbereite Pakete gelten nie als verspätet.
+
 ### Packstation und Abholstellen
 
 Ein Paket, das in einer Packstation liegt, meldet bei DHL weiterhin
@@ -559,7 +578,7 @@ durchgereicht, nicht als Event-Typ, damit ein unbekannter Code nichts bricht.
 ### Event-Entität je Sendung
 
 Jede Sendung hat zwei Event-Entitäten mit den Event-Typen `pre_transit`,
-`transit`, `out_for_delivery`, `ready_for_pickup`, `delivered`, `failure` und `unknown`:
+`transit`, `out_for_delivery`, `ready_for_pickup`, `delayed`, `delivered`, `failure` und `unknown`:
 
 | Entität | Feuert |
 |---|---|

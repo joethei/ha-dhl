@@ -138,7 +138,8 @@
           "transit": "Unterwegs",
           "unknown": "Unbekannt",
           "out_for_delivery": "In Zustellung",
-          "ready_for_pickup": "Zur Abholung bereit"
+          "ready_for_pickup": "Zur Abholung bereit",
+          "delayed": "Verspätet"
         }
       },
       "status_timestamp": {
@@ -236,7 +237,8 @@
               "delivered": "Zugestellt",
               "failure": "Fehlgeschlagen",
               "unknown": "Unbekannt",
-              "ready_for_pickup": "Zur Abholung bereit"
+              "ready_for_pickup": "Zur Abholung bereit",
+              "delayed": "Verspätet"
             }
           }
         }
@@ -252,7 +254,8 @@
               "delivered": "Zugestellt",
               "failure": "Fehlgeschlagen",
               "unknown": "Unbekannt",
-              "ready_for_pickup": "Zur Abholung bereit"
+              "ready_for_pickup": "Zur Abholung bereit",
+              "delayed": "Verspätet"
             }
           }
         }

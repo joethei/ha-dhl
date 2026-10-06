@@ -15,7 +15,8 @@ def shipment_payload(
     status: str = "In transit",
     status_code: str = "transit",
     timestamp: str = "2026-09-20T09:15:00+02:00",
-    estimated_delivery: str | None = "2026-09-21T12:00:00+02:00",
+    # Far ahead: a forecast in the past would make the shipment `delayed`.
+    estimated_delivery: str | None = "2099-09-21T12:00:00+02:00",
     delivery_time_frame: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Return a TrackingShipment payload modelled after the DHL OpenAPI spec."""

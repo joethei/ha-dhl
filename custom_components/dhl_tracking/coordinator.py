@@ -77,6 +77,7 @@ from .const import (
     PRIORITY_WEIGHT_TRANSIT,
     RATE_LIMIT_BACKOFF_MAX,
     RATE_LIMIT_BACKOFF_START,
+    STATUS_CODE_DELAYED,
     STATUS_CODE_DELIVERED,
     STATUS_CODE_OUT_FOR_DELIVERY,
     STATUS_CODE_PRE_TRANSIT,
@@ -367,7 +368,33 @@ def derive_status_code(data: dict[str, Any] | None, now: datetime) -> str | None
         return STATUS_CODE_READY_FOR_PICKUP
     if code == STATUS_CODE_TRANSIT and is_out_for_delivery(data, now):
         return STATUS_CODE_OUT_FOR_DELIVERY
+    if code == STATUS_CODE_TRANSIT and is_delayed(data, now):
+        return STATUS_CODE_DELAYED
     return code
+
+
+def overdue_by(data: dict[str, Any] | None, now: datetime) -> timedelta | None:
+    """Return how long the delivery forecast has been over, if it is.
+
+    ``None`` while the forecast is still ahead, when there is none, and for
+    shipments that are delivered or waiting in a Packstation - those are not
+    late, whatever the old forecast says.
+    """
+    status = (data or {}).get("status") or {}
+    if status.get("statusCode") == STATUS_CODE_DELIVERED or is_ready_for_pickup(
+        status
+    ):
+        return None
+    end = expected_delivery_end(data)
+    if end is None or now <= end:
+        return None
+    return now - end
+
+
+def is_delayed(data: dict[str, Any] | None, now: datetime) -> bool:
+    """Return whether the forecast passed longer ago than the grace period."""
+    late = overdue_by(data, now)
+    return late is not None and late > timedelta(hours=DELIVERY_OVERDUE_AFTER_HOURS)
 
 
 class RequestBudget:
@@ -1150,7 +1177,7 @@ class DhlUpdateCoordinator(DataUpdateCoordinator[dict[str, ShipmentState]]):
         self, state: ShipmentState, data: dict[str, Any], base: dict[str, Any]
     ) -> None:
         """Fire once when a forecast passed without the shipment arriving."""
-        if state.delivered:
+        if state.delivered or is_ready_for_pickup(data.get("status")):
             return
         expected = expected_delivery_end(data)
         if expected is None:

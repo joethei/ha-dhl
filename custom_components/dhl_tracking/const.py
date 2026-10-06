@@ -104,11 +104,18 @@ STATUS_CODE_OUT_FOR_DELIVERY: Final = "out_for_delivery"
 STATUS_CODE_READY_FOR_PICKUP: Final = "ready_for_pickup"
 READY_FOR_PICKUP_DETAIL_PREFIX: Final = "HLDCC_"
 
+# Derived on top of `transit` as well: the delivery forecast passed more than
+# `DELIVERY_OVERDUE_AFTER_HOURS` ago and the parcel still has not arrived. The
+# developer API does not move an expired delivery window, so without this a
+# late parcel keeps showing a delivery time that is long gone.
+STATUS_CODE_DELAYED: Final = "delayed"
+
 # Exposed as the `options` of the status code sensor.
 STATUS_CODES: Final = (
     *API_STATUS_CODES,
     STATUS_CODE_OUT_FOR_DELIVERY,
     STATUS_CODE_READY_FOR_PICKUP,
+    STATUS_CODE_DELAYED,
 )
 
 # A same-day delivery window still counts as "out for delivery" for this long
@@ -218,7 +225,9 @@ EVENT_DELIVERY_OVERDUE: Final = "dhl_tracking_delivery_overdue"
 EVENT_REROUTE_AVAILABLE: Final = "dhl_tracking_reroute_available"
 EVENT_PROOF_OF_DELIVERY_AVAILABLE: Final = "dhl_tracking_proof_of_delivery_available"
 
-# How long after the forecast end a shipment is considered overdue.
+# How long after the forecast end a shipment is considered overdue. Matches
+# `OUT_FOR_DELIVERY_GRACE_HOURS`, so `out_for_delivery` hands over to
+# `delayed` without a gap.
 DELIVERY_OVERDUE_AFTER_HOURS: Final = 2
 
 # Repair issue raised while DHL has never known a tracking number.

@@ -138,7 +138,8 @@
           "transit": "In transit",
           "unknown": "Unknown",
           "out_for_delivery": "Out for delivery",
-          "ready_for_pickup": "Ready for pickup"
+          "ready_for_pickup": "Ready for pickup",
+          "delayed": "Delayed"
         }
       },
       "status_timestamp": {
@@ -236,7 +237,8 @@
               "delivered": "Delivered",
               "failure": "Failure",
               "unknown": "Unknown",
-              "ready_for_pickup": "Ready for pickup"
+              "ready_for_pickup": "Ready for pickup",
+              "delayed": "Delayed"
             }
           }
         }
@@ -252,7 +254,8 @@
               "delivered": "Delivered",
               "failure": "Failure",
               "unknown": "Unknown",
-              "ready_for_pickup": "Ready for pickup"
+              "ready_for_pickup": "Ready for pickup",
+              "delayed": "Delayed"
             }
           }
         }

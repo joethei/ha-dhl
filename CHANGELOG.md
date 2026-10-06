@@ -3,6 +3,26 @@
 Alle nennenswerten Änderungen an dieser Integration.
 Das Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [0.7.0-beta.2] – 2026-10-06
+
+### Hinzugefügt
+
+- **Verspätete Sendungen:** Die Entwickler-API zieht ein abgelaufenes
+  Zustellfenster nicht nach, sodass ein verspätetes Paket eine längst
+  vergangene Uhrzeit zeigte. Der Sensor **Statuscode** wechselt jetzt zwei
+  Stunden nach Ende der Prognose auf den abgeleiteten Wert `delayed`
+  („Verspätet“) – zeitgleich mit `dhl_tracking_delivery_overdue` und dem Ende
+  von `out_for_delivery`. Beide Event-Entitäten haben dafür einen eigenen
+  Event-Typ.
+- **Geplante Zustellung** und **Zustelltag** tragen die Attribute
+  `forecast_expired` und `overdue_minutes`.
+
+### Geändert
+
+- **Nächste Zustellung** überspringt abgelaufene Prognosen und listet
+  verspätete Sendungen im neuen Attribut `delayed_shipments`.
+- Pakete in der Packstation lösen kein `dhl_tracking_delivery_overdue` mehr aus.
+
 ## [0.7.0-beta.1] – 2026-10-06
 
 ### Hinzugefügt

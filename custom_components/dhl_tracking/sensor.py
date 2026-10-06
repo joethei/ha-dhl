@@ -48,6 +48,7 @@ from .coordinator import (
     ShipmentPriority,
     ShipmentState,
     derive_status_code,
+    overdue_by,
     parse_api_date,
     parse_api_datetime,
 )
@@ -168,11 +169,27 @@ def _estimated_delivery_day(data: dict[str, Any]) -> date | None:
     )
 
 
+def _forecast_state(data: dict[str, Any]) -> dict[str, Any]:
+    """Return whether DHL's forecast already lies in the past.
+
+    The developer API leaves an expired delivery window in place, so a late
+    parcel would otherwise keep showing a time that is long gone.
+    """
+    late = overdue_by(data, dt_util.utcnow())
+    if late is None:
+        return {"forecast_expired": False}
+    return {
+        "forecast_expired": True,
+        "overdue_minutes": int(late.total_seconds() // 60),
+    }
+
+
 def _delivery_attributes(data: dict[str, Any]) -> dict[str, Any]:
     """Return the full delivery forecast as attributes."""
     frame = _delivery_time_frame(data)
     remark = data.get("estimatedTimeOfDeliveryRemark")
     attrs = {
+        **_forecast_state(data),
         "time_frame_from": _iso(frame.get("estimatedFrom")),
         "time_frame_through": _iso(frame.get("estimatedThrough")),
         "time_frame_remark": remark,
@@ -898,6 +915,7 @@ class DhlOpenShipmentsSensor(DhlEntrySensor):
                     "estimated_delivery_date": day.isoformat() if day else None,
                     "time_frame_from": _iso(frame.get("estimatedFrom")),
                     "time_frame_through": _iso(frame.get("estimatedThrough")),
+                    **_forecast_state(data),
                     "signature_required": features.signature_required,
                     "id_required": features.id_required,
                     "services": list(features.services),
@@ -918,21 +936,42 @@ class DhlNextDeliverySensor(DhlEntrySensor):
         """Initialize the sensor."""
         super().__init__(coordinator, "next_delivery")
 
+    def _late_states(self) -> list[ShipmentState]:
+        """Return the open shipments whose forecast already passed."""
+        now = dt_util.utcnow()
+        return [
+            state
+            for state in self._open_states()
+            if overdue_by(state.data, now) is not None
+        ]
+
     def _earliest_time(self) -> tuple[datetime, ShipmentState] | None:
-        """Return the earliest precise delivery time, if any shipment has one."""
+        """Return the earliest precise delivery time that is still ahead.
+
+        An expired forecast would otherwise win every comparison and pin the
+        sensor to a time in the past; those shipments are listed separately.
+        """
+        late = {state.tracking_number for state in self._late_states()}
         candidates = [
             (moment, state)
             for state in self._open_states()
-            if (moment := _estimated_delivery_time(state.data or {})) is not None
+            if state.tracking_number not in late
+            and (moment := _estimated_delivery_time(state.data or {})) is not None
         ]
         return min(candidates, key=lambda item: item[0]) if candidates else None
 
     def _earliest_day(self) -> tuple[date, ShipmentState] | None:
-        """Return the earliest known delivery day, even without a time."""
+        """Return the earliest delivery day that is not over yet.
+
+        A late parcel whose forecast day is today still counts - it is
+        expected today, just not at the time DHL named.
+        """
+        today = dt_util.now().date()
         candidates = [
             (day, state)
             for state in self._open_states()
             if (day := _estimated_delivery_day(state.data or {})) is not None
+            and day >= today
         ]
         return min(candidates, key=lambda item: item[0]) if candidates else None
 
@@ -957,4 +996,15 @@ class DhlNextDeliverySensor(DhlEntrySensor):
             attrs["earliest_date"] = earliest_day[0].isoformat()
             attrs["earliest_date_tracking_number"] = earliest_day[1].tracking_number
             attrs["earliest_date_name"] = earliest_day[1].shipment.display_name
+        now = dt_util.utcnow()
+        attrs["delayed_shipments"] = [
+            {
+                "tracking_number": state.tracking_number,
+                "name": state.shipment.display_name,
+                "overdue_minutes": int(
+                    overdue_by(state.data, now).total_seconds() // 60
+                ),
+            }
+            for state in self._late_states()
+        ]
         return attrs

@@ -56,6 +56,7 @@ async def test_open_shipments_counts_undelivered(
         "estimated_delivery_date",
         "time_frame_from",
         "time_frame_through",
+        "forecast_expired",
         "signature_required",
         "id_required",
         "services",
@@ -113,7 +114,9 @@ async def test_next_delivery_picks_the_earliest_time(
     hass: HomeAssistant, mock_api: AsyncMock, shipment_responses: dict
 ) -> None:
     """The timestamp is the earliest precise delivery time across shipments."""
-    today = dt_util.now().date().isoformat()
+    # Tomorrow, so that the test does not depend on the time of day: a window
+    # that is already over today is not a "next" delivery.
+    today = (dt_util.now() + timedelta(days=1)).date().isoformat()
     shipment_responses[TRACKING_NUMBER] = shipment_payload(
         TRACKING_NUMBER,
         estimated_delivery=None,
