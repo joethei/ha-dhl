@@ -37,7 +37,7 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed
-from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import device_registry as dr, issue_registry as ir
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
@@ -51,6 +51,7 @@ from .api import (
 from .const import (
     API_MIN_SECONDS_BETWEEN_CALLS,
     API_STATUS_CODES,
+    AWAITING_PICKUP_INTERVAL_FACTOR,
     DAILY_REQUEST_BUDGET,
     DELIVERED_SCAN_INTERVAL,
     DELIVERY_IMMINENT_LEAD_HOURS,
@@ -66,9 +67,11 @@ from .const import (
     EVENT_SHIPMENT_REMOVED,
     EVENT_STATUS_CHANGED,
     IMMINENT_INTERVAL_DIVISOR,
+    ISSUE_SHIPMENT_NOT_FOUND,
     MIN_SCAN_INTERVAL,
     OUT_FOR_DELIVERY_GRACE_HOURS,
     PRE_TRANSIT_INTERVAL_FACTOR,
+    PRIORITY_WEIGHT_AWAITING_PICKUP,
     PRIORITY_WEIGHT_IMMINENT,
     PRIORITY_WEIGHT_PRE_TRANSIT,
     PRIORITY_WEIGHT_TRANSIT,
@@ -77,10 +80,12 @@ from .const import (
     STATUS_CODE_DELIVERED,
     STATUS_CODE_OUT_FOR_DELIVERY,
     STATUS_CODE_PRE_TRANSIT,
+    STATUS_CODE_READY_FOR_PICKUP,
     STATUS_CODE_TRANSIT,
     STATUS_CODE_UNKNOWN,
 )
 from .models import DhlOptions, Shipment
+from .pickup import is_ready_for_pickup, plain_text
 from .services import async_purge_delivered
 from .store import DhlStateStore
 
@@ -103,6 +108,10 @@ class ShipmentPriority(StrEnum):
     PRE_TRANSIT = "pre_transit"
     """Announced by the sender, not picked up yet. Changes rarely."""
 
+    AWAITING_PICKUP = "awaiting_pickup"
+    """Waiting in a Packstation or at a pickup point. The next change is the
+    recipient collecting it, so there is nothing to hurry for."""
+
     DELIVERED = "delivered"
     """Done. Polled once a day at most, or not at all."""
 
@@ -111,6 +120,7 @@ PRIORITY_WEIGHTS: dict[ShipmentPriority, int] = {
     ShipmentPriority.IMMINENT: PRIORITY_WEIGHT_IMMINENT,
     ShipmentPriority.TRANSIT: PRIORITY_WEIGHT_TRANSIT,
     ShipmentPriority.PRE_TRANSIT: PRIORITY_WEIGHT_PRE_TRANSIT,
+    ShipmentPriority.AWAITING_PICKUP: PRIORITY_WEIGHT_AWAITING_PICKUP,
 }
 
 # Order used when the request budget is not enough for everything that is due.
@@ -118,7 +128,8 @@ PRIORITY_ORDER: dict[ShipmentPriority, int] = {
     ShipmentPriority.IMMINENT: 0,
     ShipmentPriority.TRANSIT: 1,
     ShipmentPriority.PRE_TRANSIT: 2,
-    ShipmentPriority.DELIVERED: 3,
+    ShipmentPriority.AWAITING_PICKUP: 3,
+    ShipmentPriority.DELIVERED: 4,
 }
 
 
@@ -165,6 +176,10 @@ class ShipmentState:
         """Return how urgently this shipment needs fresh data."""
         if self.delivered:
             return ShipmentPriority.DELIVERED
+        # Checked before the forecast: DHL leaves the delivery day of the
+        # Packstation run in place, which would otherwise look overdue.
+        if is_ready_for_pickup((self.data or {}).get("status")):
+            return ShipmentPriority.AWAITING_PICKUP
         if is_out_for_delivery(self.data, now) or self.delivery_imminent(now):
             return ShipmentPriority.IMMINENT
         if self.status_code == STATUS_CODE_PRE_TRANSIT:
@@ -342,11 +357,14 @@ def scan_identity(event: Any) -> tuple[str, str, str] | None:
 
 
 def derive_status_code(data: dict[str, Any] | None, now: datetime) -> str | None:
-    """Return the effective status code, including ``out_for_delivery``."""
-    raw = ((data or {}).get("status") or {}).get("statusCode")
+    """Return the effective status code, including the derived ones."""
+    status = (data or {}).get("status") or {}
+    raw = status.get("statusCode")
     if raw is None:
         return None
     code = raw if raw in API_STATUS_CODES else STATUS_CODE_UNKNOWN
+    if is_ready_for_pickup(status):
+        return STATUS_CODE_READY_FOR_PICKUP
     if code == STATUS_CODE_TRANSIT and is_out_for_delivery(data, now):
         return STATUS_CODE_OUT_FOR_DELIVERY
     return code
@@ -570,6 +588,7 @@ class DhlUpdateCoordinator(DataUpdateCoordinator[dict[str, ShipmentState]]):
 
         for shipment in diff.removed:
             self.states.pop(shipment.tracking_number, None)
+            _async_clear_not_found(self.hass, shipment.tracking_number)
             self._announce_first_status.discard(shipment.tracking_number)
         for shipment in diff.added:
             self.states[shipment.tracking_number] = ShipmentState(shipment=shipment)
@@ -709,6 +728,8 @@ class DhlUpdateCoordinator(DataUpdateCoordinator[dict[str, ShipmentState]]):
             seconds = max(MIN_SCAN_INTERVAL, scan_interval // IMMINENT_INTERVAL_DIVISOR)
         elif priority is ShipmentPriority.PRE_TRANSIT:
             seconds = scan_interval * PRE_TRANSIT_INTERVAL_FACTOR
+        elif priority is ShipmentPriority.AWAITING_PICKUP:
+            seconds = scan_interval * AWAITING_PICKUP_INTERVAL_FACTOR
         else:
             seconds = scan_interval
         return timedelta(seconds=seconds)
@@ -910,6 +931,7 @@ class DhlUpdateCoordinator(DataUpdateCoordinator[dict[str, ShipmentState]]):
             _LOGGER.debug(
                 "DHL API reports no shipment for %s", shipment.tracking_number
             )
+            self._async_report_not_found(state)
             return
         except DhlApiError as err:
             state.error = "api_error"
@@ -922,9 +944,11 @@ class DhlUpdateCoordinator(DataUpdateCoordinator[dict[str, ShipmentState]]):
 
         if data is None:
             state.error = "not_found"
+            self._async_report_not_found(state)
             return
 
         state.error = None
+        _async_clear_not_found(self.hass, shipment.tracking_number)
         state.last_success = state.last_polled
         previous = state.data
         # `_announce_first_status` marks shipments added during this session;
@@ -933,6 +957,29 @@ class DhlUpdateCoordinator(DataUpdateCoordinator[dict[str, ShipmentState]]):
         state.data = data
         self._async_handle_status(state, data)
         self._async_emit_payload_events(state, previous, data, is_new=is_new)
+
+    @callback
+    def _async_report_not_found(self, state: ShipmentState) -> None:
+        """Raise a repair issue for a number DHL has never known.
+
+        A number that was found before and disappears again is DHL's problem,
+        not a typo, so only shipments without a single successful poll count.
+        """
+        if state.last_success is not None:
+            return
+        shipment = state.shipment
+        ir.async_create_issue(
+            self.hass,
+            DOMAIN,
+            ISSUE_SHIPMENT_NOT_FOUND.format(shipment.tracking_number),
+            is_fixable=False,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key="shipment_not_found",
+            translation_placeholders={
+                "tracking_number": shipment.tracking_number,
+                "name": shipment.display_name,
+            },
+        )
 
     @callback
     def _async_handle_status(self, state: ShipmentState, data: dict[str, Any]) -> None:
@@ -974,7 +1021,7 @@ class DhlUpdateCoordinator(DataUpdateCoordinator[dict[str, ShipmentState]]):
             # The unmodified API values, for anything that needs them.
             "old_status_code_api": old_status_code,
             "new_status_code_api": new_status_code,
-            "description": status_block.get("description"),
+            "description": plain_text(status_block.get("description")),
         }
         self.hass.bus.async_fire(EVENT_STATUS_CHANGED, payload)
         for listener in list(self._status_listeners):
@@ -1038,9 +1085,10 @@ class DhlUpdateCoordinator(DataUpdateCoordinator[dict[str, ShipmentState]]):
                 "status": event.get("status"),
                 "status_code": event.get("statusCode"),
                 "status_detailed": event.get("statusDetailed"),
-                "description": event.get("description"),
+                "description": plain_text(event.get("description")),
                 "location": _format_event_place(event.get("location")),
                 "timestamp": timestamp.isoformat() if timestamp else None,
+                "ready_for_pickup": is_ready_for_pickup(event),
             }
             self.hass.bus.async_fire(EVENT_SCAN_ADDED, payload)
             for listener in list(self._scan_listeners):
@@ -1125,7 +1173,9 @@ class DhlUpdateCoordinator(DataUpdateCoordinator[dict[str, ShipmentState]]):
                 **base,
                 "expected_through": marker,
                 "status_code": state.effective_status_code,
-                "description": (data.get("status") or {}).get("description"),
+                "description": plain_text(
+                    (data.get("status") or {}).get("description")
+                ),
             },
         )
 
@@ -1145,6 +1195,14 @@ def _proof_of_delivery(data: dict[str, Any] | None) -> str | None:
     details = details if isinstance(details, dict) else {}
     pod = details.get("proofOfDelivery")
     return pod.get("documentUrl") if isinstance(pod, dict) else None
+
+
+@callback
+def _async_clear_not_found(hass: HomeAssistant, tracking_number: str) -> None:
+    """Remove the "not found" repair issue of a shipment, if there is one."""
+    ir.async_delete_issue(
+        hass, DOMAIN, ISSUE_SHIPMENT_NOT_FOUND.format(tracking_number)
+    )
 
 
 def _format_event_place(place: Any) -> str | None:

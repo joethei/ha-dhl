@@ -18,6 +18,7 @@ from .const import (
     ATTRIBUTION,
     DOMAIN,
     MANUFACTURER,
+    STATUS_CODE_READY_FOR_PICKUP,
     STATUS_CODE_UNKNOWN,
     STATUS_CODES,
 )
@@ -152,6 +153,8 @@ class DhlShipmentScanEvent(EventEntity):
         if state.tracking_number != self._tracking_number:
             return
         code = payload.get("status_code") or STATUS_CODE_UNKNOWN
+        if payload.get("ready_for_pickup"):
+            code = STATUS_CODE_READY_FOR_PICKUP
         event_type = code.replace("-", "_")
         if event_type not in EVENT_TYPES:
             event_type = STATUS_CODE_UNKNOWN

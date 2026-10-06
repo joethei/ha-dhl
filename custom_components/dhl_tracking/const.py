@@ -93,8 +93,23 @@ API_STATUS_CODES: Final = (
 # `estimatedDeliveryTimeFrame` instead of any status text.
 STATUS_CODE_OUT_FOR_DELIVERY: Final = "out_for_delivery"
 
+# Also derived on top of `transit`: a parcel waiting in a Packstation (or at
+# another pickup point) keeps `statusCode: transit` until it is collected.
+# Only `statusDetailed` tells it apart. That field is an undocumented but
+# language independent code made of three segments, the first one naming the
+# kind of scan (`PARCV`, `LDTMV`, `ULFMV`, `SRTED` were observed for ordinary
+# parcels). A parcel placed in a Packstation reports `HLDCC_LDPCK_LA`; the
+# whole `HLDCC` ("held for customer collection") group is matched so that
+# other pickup points are covered as well.
+STATUS_CODE_READY_FOR_PICKUP: Final = "ready_for_pickup"
+READY_FOR_PICKUP_DETAIL_PREFIX: Final = "HLDCC_"
+
 # Exposed as the `options` of the status code sensor.
-STATUS_CODES: Final = (*API_STATUS_CODES, STATUS_CODE_OUT_FOR_DELIVERY)
+STATUS_CODES: Final = (
+    *API_STATUS_CODES,
+    STATUS_CODE_OUT_FOR_DELIVERY,
+    STATUS_CODE_READY_FOR_PICKUP,
+)
 
 # A same-day delivery window still counts as "out for delivery" for this long
 # after it has closed - the courier may simply be running late.
@@ -120,11 +135,14 @@ DELIVERY_OVERDUE_GRACE_HOURS: Final = 24
 PRIORITY_WEIGHT_IMMINENT: Final = 6
 PRIORITY_WEIGHT_TRANSIT: Final = 2
 PRIORITY_WEIGHT_PRE_TRANSIT: Final = 1
+# A parcel in a Packstation only changes once more - when it is collected.
+PRIORITY_WEIGHT_AWAITING_PICKUP: Final = 1
 
 # Per-priority floor, relative to the configured scan interval. A shipment is
 # never polled more often than its floor allows, even if budget is left over.
 IMMINENT_INTERVAL_DIVISOR: Final = 3
 PRE_TRANSIT_INTERVAL_FACTOR: Final = 2
+AWAITING_PICKUP_INTERVAL_FACTOR: Final = 2
 
 # --- Delivery features ------------------------------------------------------
 # Normalised service keys exposed as the `services` entity attribute. Only
@@ -203,6 +221,9 @@ EVENT_PROOF_OF_DELIVERY_AVAILABLE: Final = "dhl_tracking_proof_of_delivery_avail
 # How long after the forecast end a shipment is considered overdue.
 DELIVERY_OVERDUE_AFTER_HOURS: Final = 2
 
+# Repair issue raised while DHL has never known a tracking number.
+ISSUE_SHIPMENT_NOT_FOUND: Final = "shipment_not_found_{}"
+
 # --- Dispatcher -------------------------------------------------------------
 SIGNAL_SHIPMENTS_CHANGED: Final = "dhl_tracking_shipments_changed_{}"
 
@@ -211,5 +232,8 @@ SIGNAL_SHIPMENTS_CHANGED: Final = "dhl_tracking_shipments_changed_{}"
 # air waybills, 12-20 digit parcel numbers, alphanumeric international IDs).
 # Keep validation permissive but reject obvious junk.
 TRACKING_NUMBER_PATTERN: Final = r"^[A-Za-z0-9][A-Za-z0-9-]{3,38}$"
+# 20-digit DHL Paket numbers are a GS1 SSCC (18 digits, the last one a check
+# digit) behind the application identifier `00`.
+SSCC_TRACKING_NUMBER_PATTERN: Final = r"^00(\d{18})$"
 POSTAL_CODE_PATTERN: Final = r"^[A-Za-z0-9][A-Za-z0-9 -]{1,11}$"
 MAX_NAME_LENGTH: Final = 100

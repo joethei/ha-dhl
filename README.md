@@ -10,9 +10,11 @@ Assistant noch eine Neueingabe des API-Schlüssels ist nötig.
 
 ## Funktionsumfang
 
-- 📦 Ein Gerät pro Sendung mit 24 Sensoren und einer Event-Entität, gruppiert in der Home-Assistant-Oberfläche
+- 📦 Ein Gerät pro Sendung mit 25 Sensoren und einer Event-Entität, gruppiert in der Home-Assistant-Oberfläche
 - 🏷️ Zustellmerkmale strukturiert: `signature_required`, `id_required`, `services`, Nachnahmebetrag
 - 🚚 Eigener Status `out_for_delivery`, abgeleitet aus dem Zustellfenster
+- 🏧 Eigener Status `ready_for_pickup` und Sensor **Abholort** für Pakete in der Packstation
+- 🔎 Prüfziffer-Kontrolle für 20-stellige Paketnummern und Reparaturhinweis bei unbekannten Nummern
 - ➕ `dhl_tracking.add_shipment` / `dhl_tracking.remove_shipment` /
   `dhl_tracking.remove_delivered_shipments` als vollwertige Aktionen
 - 🖱️ Options Flow unter *Einstellungen → Geräte & Dienste → DHL Tracking → Konfigurieren*
@@ -262,7 +264,7 @@ actions:
 
 ## Entities
 
-Pro Sendung wird ein Gerät mit 24 Sensoren und einer Event-Entität angelegt. Die Unique IDs haben das
+Pro Sendung wird ein Gerät mit 25 Sensoren und einer Event-Entität angelegt. Die Unique IDs haben das
 Format `dhl_tracking_<sendungsnummer>_<sensor>` und sind gegenüber früheren
 Versionen unverändert – vorhandene Entity-IDs bleiben also erhalten.
 
@@ -271,7 +273,8 @@ Versionen unverändert – vorhandene Entity-IDs bleiben also erhalten.
 | Status | `status.status` | – |
 | Statuscode | `status.statusCode` (Enum) | Diagnose |
 | Status-Zeitstempel | `status.timestamp` | – |
-| Statusbeschreibung | `status.description` | – |
+| Statusbeschreibung | `status.description` (ohne HTML) | – |
+| Abholort | Packstation bzw. Abholstelle aus `status.description` | – |
 | Nächste Schritte | `status.nextSteps` | – |
 | Kundenreferenz | `details.references[]` (bevorzugt `customer-order-number`) | – |
 | Status-Standort | `status.location` (Ort, Land) | – |
@@ -296,7 +299,8 @@ Versionen unverändert – vorhandene Entity-IDs bleiben also erhalten.
 Zusätzlich existiert pro Konfigurationseintrag ein Dienst-Gerät „DHL Tracking"
 mit dem Diagnosesensor **API-Anfragen heute**. Dessen Attribute zeigen das
 Tagesbudget, den geschätzten Tagesverbrauch, die Anzahl Sendungen je Priorität
-(`imminent_shipments`, `transit_shipments`, `pre_transit_shipments`) und das
+(`imminent_shipments`, `transit_shipments`, `pre_transit_shipments`,
+`awaiting_pickup_shipments`) und das
 daraus resultierende Intervall je Priorität (`interval_minutes_imminent` usw.).
 
 ### Übersichts-Sensoren
@@ -467,6 +471,38 @@ Der bei `parcel-de` auftauchende Wert `PO` ist weder in der OpenAPI-
 Spezifikation noch in einem Support-Artikel dokumentiert. Darauf zu matchen
 wäre Raterei auf undokumentierten, zudem lokalisierten Daten.
 
+### Packstation und Abholstellen
+
+Ein Paket, das in einer Packstation liegt, meldet bei DHL weiterhin
+`statusCode: transit` – bis es abgeholt ist, dann `delivered`. Unterscheiden
+lässt es sich nur über `statusDetailed`. Das ist ein undokumentierter, aber
+sprachunabhängiger Code aus drei Teilen; der erste benennt die Art des Scans:
+
+| `statusDetailed` | Bedeutung | Statuscode |
+|---|---|---|
+| `LDTMV_PCKST_PO` | auf dem Weg zur Packstation | `transit` |
+| `HLDCC_LDPCK_LA` | liegt in der Packstation zur Abholung bereit | `ready_for_pickup` |
+
+Der Sensor **Statuscode** zeigt für die ganze `HLDCC_`-Gruppe den abgeleiteten
+Wert `ready_for_pickup`, beide Event-Entitäten haben dafür einen eigenen
+Event-Typ. Eine abholbereite Sendung wird selten abgefragt (Priorität
+„wartet auf Abholung"), denn bis zur Abholung ändert sich nichts mehr.
+
+DHL schreibt die Packstation als HTML-Link in die Statusbeschreibung. Der
+Sensor **Abholort** macht daraus Klartext:
+
+```yaml
+state: "Packstation 205, Christian-Hülsmeyer-Str. 3, 27472 Cuxhaven"
+name: "Packstation 205"
+address: "Christian-Hülsmeyer-Str. 3, 27472 Cuxhaven"
+postal_code: "27472"
+locker_id: "205"
+url: "https://www.dhl.de/de/privatkunden/dhl-standorte-finden.html?address=27472:205&preferPackstation=true"
+```
+
+Alle Beschreibungstexte – Sensoren, Attribute und Ereignisse – werden ohne HTML
+ausgegeben. Die Abholfrist liefert die API nicht.
+
 ### Zustellort nach der Zustellung
 
 Sobald `statusCode` = `delivered` ist, tragen **Statuscode** und **Status**
@@ -523,7 +559,7 @@ durchgereicht, nicht als Event-Typ, damit ein unbekannter Code nichts bricht.
 ### Event-Entität je Sendung
 
 Jede Sendung hat zwei Event-Entitäten mit den Event-Typen `pre_transit`,
-`transit`, `out_for_delivery`, `delivered`, `failure` und `unknown`:
+`transit`, `out_for_delivery`, `ready_for_pickup`, `delivered`, `failure` und `unknown`:
 
 | Entität | Feuert |
 |---|---|
@@ -591,6 +627,7 @@ Tagesbudget deshalb **gewichtet**:
 | **in Zustellung** | Zustellprognose läuft gerade, steht in ≤ 8 h an oder ist ≤ 24 h überfällig | 6 | Intervall ÷ 3 |
 | **unterwegs** | `statusCode` = `transit`, `failure` oder `unknown` | 2 | Intervall |
 | **angekündigt** | `statusCode` = `pre-transit` | 1 | Intervall × 2 |
+| **wartet auf Abholung** | liegt in der Packstation (`ready_for_pickup`) | 1 | Intervall × 2 |
 | **zugestellt** | `statusCode` = `delivered` | – | 24 h bzw. nie |
 
 Eine Sendung in Zustellung wird also **dreimal so oft** abgefragt wie eine
@@ -865,7 +902,8 @@ Entwickler-API-Schlüssel.
 
 | Symptom | Ursache / Abhilfe |
 |---|---|
-| Entities sind `unavailable` | DHL kennt die Nummer (noch) nicht. Frisch aufgegebene Sendungen erscheinen oft erst nach einigen Stunden. |
+| Entities sind `unavailable`, Reparaturhinweis „DHL kennt die Sendung nicht" | DHL hat die Nummer noch nie gefunden. Meist ein Tippfehler (ein Zeichen zu viel oder zu wenig); frisch aufgegebene Sendungen erscheinen aber auch oft erst nach einigen Stunden. Der Hinweis verschwindet, sobald DHL die Sendung kennt. |
+| „Die Prüfziffer stimmt nicht" beim Hinzufügen | 20-stellige Paketnummern (`00340…`) enthalten eine Prüfziffer. Die Nummer ist vertippt. |
 | Reauth-Hinweis in der Oberfläche | Der API-Schlüssel wurde abgelehnt. Neuen Schlüssel über den Reauth-Dialog eintragen. |
 | Sensor „API-Anfragen heute" bei 200 | Das Tagesbudget ist erschöpft. Intervall verlängern oder zugestellte Sendungen entfernen. |
 | Paket in Zustellung wird nicht häufiger abgefragt | DHL liefert für diese Sendung keine `estimatedTimeOfDelivery`. Ohne Prognose bleibt sie auf „unterwegs“ – nachprüfbar über das Attribut `imminent_shipments`. |

@@ -26,6 +26,7 @@
       "invalid_auth": "The DHL API rejected this API key.",
       "rate_limited": "The DHL API rate limit is currently exceeded. Please try again later.",
       "invalid_tracking_number": "At least one tracking number has an invalid format.",
+      "invalid_check_digit": "At least one tracking number has a wrong check digit. Probably a digit was mistyped.",
       "empty_tracking_number": "A tracking number must not be empty.",
       "unknown": "Unexpected error. Check the Home Assistant log for details."
     },
@@ -99,6 +100,7 @@
     },
     "error": {
       "invalid_tracking_number": "This tracking number has an invalid format.",
+      "invalid_check_digit": "The check digit of this tracking number does not match. Probably a digit was mistyped.",
       "empty_tracking_number": "The tracking number must not be empty.",
       "invalid_name": "The display name is too long or invalid.",
       "invalid_postal_code": "The postal code has an invalid format.",
@@ -135,7 +137,8 @@
           "pre-transit": "Pre-transit",
           "transit": "In transit",
           "unknown": "Unknown",
-          "out_for_delivery": "Out for delivery"
+          "out_for_delivery": "Out for delivery",
+          "ready_for_pickup": "Ready for pickup"
         }
       },
       "status_timestamp": {
@@ -143,6 +146,9 @@
       },
       "status_description": {
         "name": "Status description"
+      },
+      "pickup_location": {
+        "name": "Pickup location"
       },
       "next_steps": {
         "name": "Next steps"
@@ -229,7 +235,8 @@
               "out_for_delivery": "Out for delivery",
               "delivered": "Delivered",
               "failure": "Failure",
-              "unknown": "Unknown"
+              "unknown": "Unknown",
+              "ready_for_pickup": "Ready for pickup"
             }
           }
         }
@@ -244,7 +251,8 @@
               "out_for_delivery": "Out for delivery",
               "delivered": "Delivered",
               "failure": "Failure",
-              "unknown": "Unknown"
+              "unknown": "Unknown",
+              "ready_for_pickup": "Ready for pickup"
             }
           }
         }
@@ -310,6 +318,9 @@
     "invalid_tracking_number": {
       "message": "The tracking number has an invalid format. Expected 4 to 39 letters, digits or dashes."
     },
+    "invalid_check_digit": {
+      "message": "The check digit of the tracking number does not match. Probably a digit was mistyped."
+    },
     "invalid_name": {
       "message": "The display name is invalid or longer than 100 characters."
     },
@@ -345,6 +356,12 @@
     },
     "api_error": {
       "message": "The DHL API returned an unexpected response (HTTP {status})."
+    }
+  },
+  "issues": {
+    "shipment_not_found": {
+      "title": "DHL does not know shipment {name}",
+      "description": "The DHL API has not found the tracking number {tracking_number} ({name}) so far, so none of its sensors have a value.\n\nCheck the number for typos - a missing or extra character is enough. If it is correct, the sender may have only just created the label: DHL often lists a new shipment only after a few hours. This notice disappears as soon as DHL knows the shipment or you remove it."
     }
   }
 }

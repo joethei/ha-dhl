@@ -9,12 +9,16 @@ import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import config_validation as cv, device_registry as dr
+from homeassistant.helpers import (
+    config_validation as cv,
+    device_registry as dr,
+    issue_registry as ir,
+)
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.typing import ConfigType
 
 from .api import DhlTrackingApi
-from .const import CONF_API_KEY, DOMAIN
+from .const import CONF_API_KEY, DOMAIN, ISSUE_SHIPMENT_NOT_FOUND
 from .coordinator import DhlUpdateCoordinator
 from .models import DhlOptions, migrate_legacy_options
 from .services import async_register_services
@@ -137,6 +141,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: DhlConfigEntry) -> bool
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Delete the persisted runtime state when the entry is removed."""
     await DhlStateStore(hass, entry.entry_id).async_remove()
+    for shipment in DhlOptions.from_mapping(entry.options).shipments:
+        ir.async_delete_issue(
+            hass, DOMAIN, ISSUE_SHIPMENT_NOT_FOUND.format(shipment.tracking_number)
+        )
 
 
 async def async_remove_config_entry_device(

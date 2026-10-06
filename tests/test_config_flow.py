@@ -212,6 +212,12 @@ async def test_options_flow_add_and_remove(
     )
     assert result["errors"] == {"tracking_number": "already_tracked"}
 
+    # A mistyped SSCC is caught by its check digit before it is stored.
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"tracking_number": "00340433914491278829"}
+    )
+    assert result["errors"] == {"tracking_number": "invalid_check_digit"}
+
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
         {"tracking_number": OTHER_TRACKING_NUMBER, "name": "Zweites Paket"},

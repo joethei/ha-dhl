@@ -51,6 +51,7 @@ from .coordinator import (
     parse_api_date,
     parse_api_datetime,
 )
+from .pickup import pickup_location, plain_text
 from .platform_helper import async_setup_shipment_platform
 from .shipment_features import extract_features
 
@@ -304,11 +305,20 @@ def _status_attributes(data: dict[str, Any]) -> dict[str, Any]:
             "status": event.get("status"),
             "status_code": event.get("statusCode"),
             "status_detailed": event.get("statusDetailed"),
-            "description": event.get("description"),
+            "description": plain_text(event.get("description")),
             "location": _format_place(event.get("location")),
         }
         history.append({k: v for k, v in entry.items() if v is not None})
     return {"events": history} if history else {}
+
+
+def _pickup_location(data: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Return the Packstation or pickup point the parcel is waiting at.
+
+    Only the current status counts: an older scan naming a Packstation says
+    nothing about where the parcel is now.
+    """
+    return pickup_location((data or {}).get("status"))
 
 
 def _truncate(value: Any) -> Any:
@@ -368,7 +378,7 @@ def _status_text_attributes(data: dict[str, Any]) -> dict[str, Any]:
     status = status if isinstance(status, dict) else {}
     attrs = {
         "status_detailed": status.get("statusDetailed"),
-        "status_remark": status.get("remark"),
+        "status_remark": plain_text(status.get("remark")),
         "next_steps": status.get("nextSteps"),
     }
     return {key: value for key, value in attrs.items() if value is not None}
@@ -382,9 +392,9 @@ def _summary_attributes(data: dict[str, Any]) -> dict[str, Any]:
         **_handover_attributes(data),
         **_status_text_attributes(data),
         # The unmodified API value, since `status_code` may report the derived
-        # `out_for_delivery`.
+        # `out_for_delivery` or `ready_for_pickup`.
         "status_code_api": _nested(data, "status", "statusCode"),
-        "description": _nested(data, "status", "description"),
+        "description": plain_text(_nested(data, "status", "description")),
         "references": _references(data),
         "customer_reference": _primary_reference(data),
         # DHL only sends the reroute link while rerouting is actually possible
@@ -424,8 +434,19 @@ SENSOR_DESCRIPTIONS: tuple[DhlSensorEntityDescription, ...] = (
         key="status_description",
         translation_key="status_description",
         icon="mdi:text",
-        value_fn=lambda data: _nested(data, "status", "description"),
+        value_fn=lambda data: plain_text(_nested(data, "status", "description")),
         extra_attrs_fn=_status_text_attributes,
+    ),
+    DhlSensorEntityDescription(
+        key="pickup_location",
+        translation_key="pickup_location",
+        icon="mdi:package-variant-closed-check",
+        value_fn=lambda data: (_pickup_location(data) or {}).get("label"),
+        extra_attrs_fn=lambda data: {
+            key: value
+            for key, value in (_pickup_location(data) or {}).items()
+            if key != "label"
+        },
     ),
     DhlSensorEntityDescription(
         key="next_steps",
@@ -786,12 +807,16 @@ class DhlApiUsageSensor(CoordinatorEntity[DhlUpdateCoordinator], SensorEntity):
             "imminent_shipments": counts[ShipmentPriority.IMMINENT],
             "transit_shipments": counts[ShipmentPriority.TRANSIT],
             "pre_transit_shipments": counts[ShipmentPriority.PRE_TRANSIT],
+            "awaiting_pickup_shipments": counts[ShipmentPriority.AWAITING_PICKUP],
             "interval_minutes_imminent": _minutes(
                 coordinator, ShipmentPriority.IMMINENT
             ),
             "interval_minutes_transit": _minutes(coordinator, ShipmentPriority.TRANSIT),
             "interval_minutes_pre_transit": _minutes(
                 coordinator, ShipmentPriority.PRE_TRANSIT
+            ),
+            "interval_minutes_awaiting_pickup": _minutes(
+                coordinator, ShipmentPriority.AWAITING_PICKUP
             ),
             "estimated_requests_per_day": round(
                 coordinator.estimated_daily_requests(), 1
@@ -865,7 +890,8 @@ class DhlOpenShipmentsSensor(DhlEntrySensor):
                     "name": state.shipment.display_name,
                     "status_code": derive_status_code(data, dt_util.utcnow()),
                     "status": _nested(data, "status", "status"),
-                    "description": _nested(data, "status", "description"),
+                    "description": plain_text(_nested(data, "status", "description")),
+                    "pickup_location": (_pickup_location(data) or {}).get("label"),
                     "estimated_delivery": (
                         delivery.isoformat() if delivery is not None else None
                     ),

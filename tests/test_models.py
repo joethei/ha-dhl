@@ -31,6 +31,9 @@ from .const import OTHER_TRACKING_NUMBER, TRACKING_NUMBER
         ("0034 0434 1234 5678 9012", TRACKING_NUMBER),
         ("jvgl1234567890", "JVGL1234567890"),
         ("1Z-999-AA1", "1Z-999-AA1"),
+        # Real numbers from a production instance.
+        ("00340433914491278828", "00340433914491278828"),
+        ("JJD000390019185445266", "JJD000390019185445266"),
     ],
 )
 def test_normalize_tracking_number(raw: str, expected: str) -> None:
@@ -49,6 +52,10 @@ def test_normalize_tracking_number(raw: str, expected: str) -> None:
         ("-1234", "invalid_tracking_number"),
         ("0034 0434!", "invalid_tracking_number"),
         ("X" * 40, "invalid_tracking_number"),
+        # 00340433914491278828 with one digit mistyped, and with two
+        # neighbouring digits swapped.
+        ("00340433914491278829", "invalid_check_digit"),
+        ("00340433914419278828", "invalid_check_digit"),
     ],
 )
 def test_normalize_tracking_number_rejects(raw: object, key: str) -> None:

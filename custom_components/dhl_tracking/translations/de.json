@@ -26,6 +26,7 @@
       "invalid_auth": "Die DHL-API hat diesen API-Schlüssel abgelehnt.",
       "rate_limited": "Das Anfragelimit der DHL-API ist derzeit erschöpft. Bitte später erneut versuchen.",
       "invalid_tracking_number": "Mindestens eine Sendungsnummer hat ein ungültiges Format.",
+      "invalid_check_digit": "Bei mindestens einer Sendungsnummer stimmt die Prüfziffer nicht. Vermutlich ist eine Ziffer vertippt.",
       "empty_tracking_number": "Eine Sendungsnummer darf nicht leer sein.",
       "unknown": "Unerwarteter Fehler. Details stehen im Home-Assistant-Protokoll."
     },
@@ -99,6 +100,7 @@
     },
     "error": {
       "invalid_tracking_number": "Diese Sendungsnummer hat ein ungültiges Format.",
+      "invalid_check_digit": "Die Prüfziffer dieser Sendungsnummer stimmt nicht. Vermutlich ist eine Ziffer vertippt.",
       "empty_tracking_number": "Die Sendungsnummer darf nicht leer sein.",
       "invalid_name": "Der Anzeigename ist zu lang oder ungültig.",
       "invalid_postal_code": "Die Postleitzahl hat ein ungültiges Format.",
@@ -135,7 +137,8 @@
           "pre-transit": "Angekündigt",
           "transit": "Unterwegs",
           "unknown": "Unbekannt",
-          "out_for_delivery": "In Zustellung"
+          "out_for_delivery": "In Zustellung",
+          "ready_for_pickup": "Zur Abholung bereit"
         }
       },
       "status_timestamp": {
@@ -143,6 +146,9 @@
       },
       "status_description": {
         "name": "Statusbeschreibung"
+      },
+      "pickup_location": {
+        "name": "Abholort"
       },
       "next_steps": {
         "name": "Nächste Schritte"
@@ -229,7 +235,8 @@
               "out_for_delivery": "In Zustellung",
               "delivered": "Zugestellt",
               "failure": "Fehlgeschlagen",
-              "unknown": "Unbekannt"
+              "unknown": "Unbekannt",
+              "ready_for_pickup": "Zur Abholung bereit"
             }
           }
         }
@@ -244,7 +251,8 @@
               "out_for_delivery": "In Zustellung",
               "delivered": "Zugestellt",
               "failure": "Fehlgeschlagen",
-              "unknown": "Unbekannt"
+              "unknown": "Unbekannt",
+              "ready_for_pickup": "Zur Abholung bereit"
             }
           }
         }
@@ -310,6 +318,9 @@
     "invalid_tracking_number": {
       "message": "Die Sendungsnummer hat ein ungültiges Format. Erwartet werden 4 bis 39 Buchstaben, Ziffern oder Bindestriche."
     },
+    "invalid_check_digit": {
+      "message": "Die Prüfziffer der Sendungsnummer stimmt nicht. Vermutlich ist eine Ziffer vertippt."
+    },
     "invalid_name": {
       "message": "Der Anzeigename ist ungültig oder länger als 100 Zeichen."
     },
@@ -345,6 +356,12 @@
     },
     "api_error": {
       "message": "Die DHL-API hat eine unerwartete Antwort geliefert (HTTP {status})."
+    }
+  },
+  "issues": {
+    "shipment_not_found": {
+      "title": "DHL kennt die Sendung {name} nicht",
+      "description": "Die DHL-API hat die Sendungsnummer {tracking_number} ({name}) bisher nicht gefunden, deshalb haben ihre Sensoren keinen Wert.\n\nPrüfe die Nummer auf Tippfehler – ein fehlendes oder zusätzliches Zeichen reicht schon. Stimmt sie, hat der Absender das Label vielleicht gerade erst erstellt: DHL führt neue Sendungen oft erst nach einigen Stunden. Der Hinweis verschwindet, sobald DHL die Sendung kennt oder du sie entfernst."
     }
   }
 }

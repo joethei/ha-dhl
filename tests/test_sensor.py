@@ -300,6 +300,7 @@ def test_sensor_description_keys_are_stable() -> None:
         "status_code",
         "status_timestamp",
         "status_description",
+        "pickup_location",
         "next_steps",
         "customer_reference",
         "status_location",

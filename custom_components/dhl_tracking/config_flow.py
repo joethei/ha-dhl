@@ -99,6 +99,7 @@ EDIT_SHIPMENT_SCHEMA = vol.Schema(
 _FIELD_FOR_ERROR = {
     "empty_tracking_number": CONF_TRACKING_NUMBER,
     "invalid_tracking_number": CONF_TRACKING_NUMBER,
+    "invalid_check_digit": CONF_TRACKING_NUMBER,
     "invalid_name": CONF_NAME,
     "invalid_postal_code": CONF_RECIPIENT_POSTAL_CODE,
 }

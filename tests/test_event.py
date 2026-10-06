@@ -40,6 +40,7 @@ async def test_event_entity_exists_per_shipment(
         "delivered",
         "failure",
         "unknown",
+        "ready_for_pickup",
     }
 
 

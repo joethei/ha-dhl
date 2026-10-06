@@ -3,6 +3,32 @@
 Alle nennenswerten Änderungen an dieser Integration.
 Das Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [0.7.0-beta.1] – 2026-10-06
+
+### Hinzugefügt
+
+- **Packstation:** Ein Paket, das zur Abholung bereitliegt, meldet bei DHL
+  weiterhin `statusCode: transit`. Der Sensor **Statuscode** zeigt dafür jetzt
+  den abgeleiteten Wert `ready_for_pickup`, erkannt am sprachunabhängigen
+  `statusDetailed`-Code `HLDCC_…`. Beide Event-Entitäten haben dafür einen
+  eigenen Event-Typ.
+- Neuer Sensor **Abholort** mit der Packstation aus DHLs Statustext
+  (`Packstation 205, <Straße>, <PLZ> <Ort>`) und den Attributen `name`,
+  `address`, `postal_code`, `locker_id` und `url`.
+- Neue Abfragepriorität „wartet auf Abholung“: Abholbereite Pakete werden so
+  selten abgefragt wie angekündigte, statt als überfällige Zustellung im
+  Schnelltakt.
+- **Prüfziffer:** 20-stellige Paketnummern (`00340…`) werden beim Hinzufügen
+  gegen ihre GS1-Prüfziffer geprüft. Eine vertippte Nummer wird abgelehnt.
+- **Reparaturhinweis**, wenn DHL eine Sendungsnummer noch nie gefunden hat –
+  meist ein Tippfehler. Er verschwindet, sobald DHL die Sendung kennt oder sie
+  entfernt wird.
+
+### Geändert
+
+- Beschreibungstexte in Sensoren, Attributen und Ereignissen enthalten kein
+  HTML mehr. DHL schickt bei Packstation-Paketen einen Link im Text mit.
+
 ## [0.6.0] – 2026-09-23
 
 ### Hinzugefügt

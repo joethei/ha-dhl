@@ -32,10 +32,12 @@ from .const import (
     MAX_SCAN_INTERVAL,
     MIN_SCAN_INTERVAL,
     POSTAL_CODE_PATTERN,
+    SSCC_TRACKING_NUMBER_PATTERN,
     TRACKING_NUMBER_PATTERN,
 )
 
 _TRACKING_NUMBER_RE = re.compile(TRACKING_NUMBER_PATTERN)
+_SSCC_RE = re.compile(SSCC_TRACKING_NUMBER_PATTERN)
 _POSTAL_CODE_RE = re.compile(POSTAL_CODE_PATTERN)
 
 
@@ -71,7 +73,22 @@ def normalize_tracking_number(value: Any) -> str:
         raise ShipmentValidationError("empty_tracking_number")
     if not _TRACKING_NUMBER_RE.match(cleaned):
         raise ShipmentValidationError("invalid_tracking_number")
+    if (sscc := _SSCC_RE.match(cleaned)) and not _gs1_check_digit_valid(sscc[1]):
+        raise ShipmentValidationError("invalid_check_digit")
     return cleaned
+
+
+def _gs1_check_digit_valid(digits: str) -> bool:
+    """Return whether the last digit is the GS1 mod-10 check digit.
+
+    Weights alternate 3, 1, 3, ... starting from the digit next to the check
+    digit. Catches every single mistyped digit and most swapped neighbours.
+    """
+    total = sum(
+        int(digit) * (3 if index % 2 == 0 else 1)
+        for index, digit in enumerate(reversed(digits[:-1]))
+    )
+    return (10 - total % 10) % 10 == int(digits[-1])
 
 
 def normalize_name(value: Any) -> str | None:

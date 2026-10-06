@@ -51,6 +51,7 @@ async def test_open_shipments_counts_undelivered(
         "status_code",
         "status",
         "description",
+        "pickup_location",
         "estimated_delivery",
         "estimated_delivery_date",
         "time_frame_from",

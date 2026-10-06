@@ -24,10 +24,12 @@ from custom_components.dhl_tracking.const import (
     DELIVERED_SCAN_INTERVAL,
     DOMAIN,
     EVENT_STATUS_CHANGED,
+    ISSUE_SHIPMENT_NOT_FOUND,
     MIN_SCAN_INTERVAL,
     RATE_LIMIT_BACKOFF_MAX,
     RATE_LIMIT_BACKOFF_START,
     SERVICE_ADD_SHIPMENT,
+    SERVICE_REMOVE_SHIPMENT,
 )
 from custom_components.dhl_tracking.coordinator import (
     RequestBudget,
@@ -35,6 +37,7 @@ from custom_components.dhl_tracking.coordinator import (
 )
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.util import dt as dt_util
 
 from .conftest import build_config_entry, setup_integration
@@ -247,6 +250,58 @@ async def test_no_aggressive_retry_after_not_found(
     state = hass.states.get(f"sensor.dhl_{TRACKING_NUMBER.lower()}_status")
     assert state is not None
     assert state.state == "unavailable"
+
+
+async def test_unknown_number_raises_a_repair_issue(
+    hass: HomeAssistant, mock_api: AsyncMock, shipment_responses: dict
+) -> None:
+    """A number DHL never knew - usually a typo - is surfaced, then cleared."""
+    shipment_responses[TRACKING_NUMBER] = DhlNotFoundError(TRACKING_NUMBER)
+    entry = build_config_entry(
+        shipments=[{"tracking_number": TRACKING_NUMBER, "name": "Kabel"}]
+    )
+    await setup_integration(hass, entry)
+
+    issue_id = ISSUE_SHIPMENT_NOT_FOUND.format(TRACKING_NUMBER)
+    issue = ir.async_get(hass).async_get_issue(DOMAIN, issue_id)
+    assert issue is not None
+    assert issue.translation_placeholders == {
+        "tracking_number": TRACKING_NUMBER,
+        "name": "Kabel",
+    }
+
+    # DHL lists the shipment a few hours later.
+    shipment_responses[TRACKING_NUMBER] = shipment_payload(TRACKING_NUMBER)
+    coordinator = entry.runtime_data.coordinator
+    coordinator.states[TRACKING_NUMBER].last_polled = None
+    await coordinator.async_refresh()
+    assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is None
+
+    # Disappearing later is DHL's business, not a typo.
+    shipment_responses[TRACKING_NUMBER] = DhlNotFoundError(TRACKING_NUMBER)
+    coordinator.states[TRACKING_NUMBER].last_polled = None
+    await coordinator.async_refresh()
+    assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is None
+
+
+async def test_repair_issue_goes_away_with_the_shipment(
+    hass: HomeAssistant, mock_api: AsyncMock, shipment_responses: dict
+) -> None:
+    """Removing the mistyped number removes its repair issue."""
+    shipment_responses[TRACKING_NUMBER] = DhlNotFoundError(TRACKING_NUMBER)
+    entry = build_config_entry(shipments=[{"tracking_number": TRACKING_NUMBER}])
+    await setup_integration(hass, entry)
+    issue_id = ISSUE_SHIPMENT_NOT_FOUND.format(TRACKING_NUMBER)
+    assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is not None
+
+    await hass.services.async_call(
+        DOMAIN,
+        SERVICE_REMOVE_SHIPMENT,
+        {"tracking_number": TRACKING_NUMBER},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+    assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is None
 
 
 async def test_connection_error_keeps_previous_data(
